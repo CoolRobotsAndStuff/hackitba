@@ -1,34 +1,34 @@
 from rich.console import Console
-from communicator import llamar_backend      # nombre correcto del archivo
+from communicator import llamar_backend, ejecutar_plan
 from interpreter import interpretar_respuesta
-from display import mostrar_plan, mostrar_confirmacion, mostrar_error
+from display import mostrar_plan, mostrar_error, mostrar_confirmacion
 
 console = Console()
 
 if __name__ == "__main__":
-    console.print("[bold blue]AI Workflow Orchestrator[/bold blue]")
-    
-    tarea = input("¿Qué tarea se atrasó? (ej: T-04): ")
-    dias = input("¿Cuántos días de atraso?: ")
+    console.print("\n[bold yellow]HALeph — AI Workflow Orchestrator[/bold yellow]\n")
 
-    console.print("[yellow]⠿ Analizando dependencias...[/yellow]")
-    
-    # Paso 1: comunicarse con el backend
-    data = llamar_backend(tarea, int(dias))
-    
-    # Paso 2: interpretar la respuesta
+    prompt = input("Describí el problema (ej: PROJ-04 se atrasó 3 días, deadline el viernes): ")
+
+    console.print("\n[yellow]⠿ Analizando dependencias...[/yellow]")
+
+    data = llamar_backend(prompt)
     plan = interpretar_respuesta(data)
-    
-    # Si algo falló, cortamos acá
+
     if plan is None:
-        mostrar_error("No se pudo obtener un plan. Revisá el backend.")
+        mostrar_error("No se pudo obtener un plan.")
     else:
-        # Paso 3: mostrar el plan
+        console.print()
         mostrar_plan(plan)
-        
-        # Paso 4: pedir confirmación
+
         confirmar = input("\n¿Aplicar cambios? [s/n]: ")
         if confirmar.lower() == "s":
-            mostrar_confirmacion()
+            console.print("\n[yellow]⠿ Ejecutando cambios en Calendar y Jira...[/yellow]")
+            resultado = ejecutar_plan(data["actions"])
+
+            if resultado and resultado.get("results"):
+                mostrar_confirmacion(resultado["results"])
+            else:
+                console.print("[green]✓ Listo.[/green]")
         else:
             console.print("[dim]Cambios cancelados.[/dim]")

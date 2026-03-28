@@ -1,12 +1,24 @@
 def interpretar_respuesta(data):
-    # Si el backend devolvió None (hubo un error), avisamos
     if data is None:
         return None
-    
-    # Si el backend devolvió un error explícito
-    if data.get("status") != "ok":
+
+    if "actions" not in data:
         print(f"El backend devolvió un error: {data.get('mensaje', 'desconocido')}")
         return None
-    
-    # Si todo está bien, devolvemos la lista de tareas del plan
-    return data["plan"]
+
+    plan = {
+        "summary": data.get("summary", ""),
+        "task_order": data.get("task_order", {}),
+        "acciones": []
+    }
+
+    for action in data["actions"]:
+        plan["acciones"].append({
+            "task_id": action["task_id"],
+            "name": action.get("reason", ""),
+            "type": action["type"],
+            "date_after": action.get("new_due_date", "—"),
+            "changed": True
+        })
+
+    return plan
