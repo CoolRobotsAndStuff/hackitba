@@ -6,8 +6,6 @@ import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OVERLAY_DIR = os.path.join(ROOT, "hackitba-overlay")
-BACKEND_DIR = os.path.join(ROOT, "backend")
-MOCK_DIR = os.path.join(ROOT, "hackitba-overlay", "hackitba-mock")
 
 procesos = []
 
@@ -19,8 +17,8 @@ def correr(comando, cwd, nombre):
     p = subprocess.Popen(
         comando,
         cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        stdout=None,
+        stderr=None
     )
     procesos.append((nombre, p))
     return p
@@ -34,17 +32,7 @@ def esperar(segundos, motivo):
 
 def verificar_dependencias():
     log("Verificando dependencias...")
-    
-    # Python
-    try:
-        import flask, flask_cors, requests, rich
-        print("         ✓ Python: flask, flask_cors, requests, rich")
-    except ImportError as e:
-        print(f"         ✗ Falta instalar: {e}")
-        print("         Corré: pip install flask flask-cors requests rich")
-        sys.exit(1)
 
-    # Node / npm
     node = subprocess.run(["node", "--version"], capture_output=True, text=True)
     npm  = subprocess.run(["npm", "--version"],  capture_output=True, text=True)
     if node.returncode != 0 or npm.returncode != 0:
@@ -53,10 +41,9 @@ def verificar_dependencias():
         sys.exit(1)
     print(f"         ✓ Node {node.stdout.strip()}, npm {npm.stdout.strip()}")
 
-    # node_modules de Electron
     nm = os.path.join(OVERLAY_DIR, "node_modules")
     if not os.path.exists(nm):
-        log("Instalando dependencias de Electron (primera vez, puede tardar)...")
+        log("Instalando dependencias de Electron (primera vez)...")
         subprocess.run(["npm", "install"], cwd=OVERLAY_DIR, check=True)
         print("         ✓ Dependencias instaladas")
     else:
@@ -79,23 +66,16 @@ def main():
 
     verificar_dependencias()
 
-    # 1. Backend Flask (P3)
-    correr(
-        [sys.executable, "app.py"],
-        cwd=BACKEND_DIR,
-        nombre="Backend Flask (P3)"
-    )
-    esperar(2, "backend iniciando")
+    # Abrir ventanas del browser
+    log("Abriendo ventanas de demo...")
+    import webbrowser
+    webbrowser.open("https://calendar.google.com/calendar/u/3/r?pli=1")
+    time.sleep(1)
+    webbrowser.open("https://hackitba-demo.atlassian.net/jira/for-you")
+    time.sleep(1)
+    print("         ✓ Calendar y Jira abiertos")
 
-    # 2. Mock server (fallback por si el backend falla)
-    correr(
-        [sys.executable, "mock_server.py"],
-        cwd=MOCK_DIR,
-        nombre="Mock server (fallback)"
-    )
-    esperar(1, "mock iniciando")
-
-    # 3. HALeph (Electron)
+    # Levantar HALeph
     correr(
         ["npm", "start"],
         cwd=OVERLAY_DIR,
@@ -105,28 +85,24 @@ def main():
 
     print("""
 ╔══════════════════════════════════════════╗
-║  Todo levantado. Instrucciones:          ║
+║  Todo listo. Instrucciones:              ║
 ║                                          ║
-║  1. La ventana de HALeph ya está abierta ║
-║  2. Presioná Ctrl+Shift+Space para       ║
-║     mostrarla/ocultarla                  ║
-║  3. Escribí el problema en el campo      ║
-║     de texto, por ejemplo:               ║
+║  1. Iniciá sesión en Calendar y Jira     ║
+║     con la cuenta de demo                ║
+║  2. La ventana de HALeph ya está abierta ║
+║  3. Ctrl+Shift+Space para mostrar/       ║
+║     ocultar el overlay                   ║
+║  4. Escribí el problema, por ejemplo:    ║
 ║                                          ║
 ║     "PROJ-04 se atrasó 3 días,           ║
 ║      deadline el viernes"                ║
-║                                          ║
-║  4. Revisá Calendar y Jira para ver      ║
-║     los cambios aplicados                ║
 ║                                          ║
 ║  Presioná Ctrl+C para cerrar todo        ║
 ╚══════════════════════════════════════════╝
     """)
 
     try:
-        # Mantener el script corriendo hasta Ctrl+C
         while True:
-            # Verificar si algún proceso murió inesperadamente
             for nombre, p in procesos:
                 if p.poll() is not None:
                     print(f"\n[DEMO] ⚠ {nombre} se cerró inesperadamente")
