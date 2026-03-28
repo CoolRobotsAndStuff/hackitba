@@ -159,70 +159,104 @@ def timeline_to_jira_ids(timeline, task_parts, context):
 
 contexto = {
     "sprint": {
-        "id": "SPR-15",
-        "name": "Sprint 5 - Features Q4",
-        "deadline": "2025-11-10"
+        "id": "SPR-22",
+        "name": "Sprint 8 - Core Tasks",
+        "deadline": "2025-11-15"
     },
     "delayed_task": {
-        "id": "PROJ-01",
-        "name": "Implementar modulo de pagos",
-        "assignee": "carlos.rodriguez@empresa.com",
-        "delay_days": 10,
-        "reason": "El trabajador asignado esta enfermo y no puede trabajar por los proximos 10 dias"
+        "id": "PROJ-00",
+        "name": "Task 0",
+        "assignee": "pedro.martinez@empresa.com",
+        "delay_days": 3,
+        "reason": "El entorno de desarrollo tuvo problemas y se perdieron 3 dias de trabajo"
     },
     "all_tasks": [
         {
-            "id": "PROJ-01",
-            "name": "Implementar modulo de pagos",
+            "id": "PROJ-00",
+            "name": "Task 0",
             "status": "in_progress",
-            "assignee": "carlos.rodriguez@empresa.com",
+            "assignee": "pedro.martinez@empresa.com",
             "estimated_days": 5,
             "start_date": "2025-11-01",
             "due_date": "2025-11-05",
             "dependencies": [],
+            "dependents": ["PROJ-02"],
+            "calendar_event_id": "cal000aaa"
+        },
+        {
+            "id": "PROJ-01",
+            "name": "Task 1",
+            "status": "todo",
+            "assignee": "juan.perez@empresa.com",
+            "estimated_days": 1,
+            "start_date": "2025-11-08",
+            "due_date": "2025-11-08",
+            "dependencies": ["PROJ-02", "PROJ-03"],
             "dependents": [],
-            "calendar_event_id": "cal111aaa"
+            "calendar_event_id": "cal111bbb"
         },
         {
             "id": "PROJ-02",
-            "name": "Desarrollar sistema de notificaciones",
-            "status": "in_progress",
+            "name": "Task 2",
+            "status": "todo",
             "assignee": "maria.lopez@empresa.com",
-            "estimated_days": 5,
-            "start_date": "2025-11-01",
-            "due_date": "2025-11-05",
-            "dependencies": [],
-            "dependents": [],
-            "calendar_event_id": "cal222bbb"
+            "estimated_days": 2,
+            "start_date": "2025-11-06",
+            "due_date": "2025-11-07",
+            "dependencies": ["PROJ-03", "PROJ-00"],
+            "dependents": ["PROJ-01"],
+            "calendar_event_id": "cal222ccc"
         },
         {
             "id": "PROJ-03",
-            "name": "Migracion de base de datos",
-            "status": "in_progress",
-            "assignee": "diego.fernandez@empresa.com",
-            "estimated_days": 5,
+            "name": "Task 3",
+            "status": "done",
+            "assignee": "lucas.fernandez@empresa.com",
+            "estimated_days": 1,
             "start_date": "2025-11-01",
-            "due_date": "2025-11-05",
+            "due_date": "2025-11-01",
+            "dependencies": [],
+            "dependents": ["PROJ-01", "PROJ-02"],
+            "calendar_event_id": "cal333ddd"
+        },
+        {
+            "id": "PROJ-04",
+            "name": "Task 4",
+            "status": "in_progress",
+            "assignee": "cacho.gomez@empresa.com",
+            "estimated_days": 1,
+            "start_date": "2025-11-01",
+            "due_date": "2025-11-01",
             "dependencies": [],
             "dependents": [],
-            "calendar_event_id": "cal333ccc"
+            "calendar_event_id": "cal444eee"
         }
     ],
     "team_members": [
         {
-            "email": "carlos.rodriguez@empresa.com",
-            "name": "Carlos Rodriguez",
-            "available_days": 0
+            "email": "pedro.martinez@empresa.com",
+            "name": "Pedro Martinez",
+            "available_days": 2
+        },
+        {
+            "email": "juan.perez@empresa.com",
+            "name": "Juan Perez",
+            "available_days": 4
         },
         {
             "email": "maria.lopez@empresa.com",
             "name": "Maria Lopez",
+            "available_days": 4
+        },
+        {
+            "email": "lucas.fernandez@empresa.com",
+            "name": "Lucas Fernandez",
             "available_days": 5
         },
         {
-            "email": "diego.fernandez@empresa.com",
-            "name": "Diego Fernandez",
-            "available_days": 5
+            "email": "cacho.gomez@empresa.com",
+            "name": "Cacho Gomez",
+            "available_days": 4
         }
     ]
 }
@@ -367,7 +401,7 @@ else:
 
     print(json.dumps(plan, indent=2, ensure_ascii=False))
 
-    # --- Asignaciones propuestas por Gemini ---
+    # Mapa de reasignaciones propuestas por Gemini
     reassignments = {
         action["task_id"]: action["new_assignee"]
         for action in plan["actions"]
@@ -376,10 +410,18 @@ else:
 
     email_to_name = {m["email"]: m["name"] for m in contexto["team_members"]}
 
-    print("\n--- ASIGNACIONES PROPUESTAS ---")
+    # Mapa task_id -> (nombre_tarea, nombre_asignado)
+    task_info = {}
     for task in contexto["all_tasks"]:
-        task_id = task["id"]
-        task_name = task["name"]
-        assignee_email = reassignments.get(task_id, task["assignee"])
-        assignee_name = email_to_name.get(assignee_email, assignee_email)
-        print(f"  {task_id} | {task_name} -> {assignee_name}")
+        assignee_email = reassignments.get(task["id"], task["assignee"])
+        task_info[task["id"]] = {
+            "name": task["name"],
+            "assignee": email_to_name.get(assignee_email, assignee_email)
+        }
+
+    print()
+    for day, task_ids in enumerate(timeline_jira):
+        print(f"Day {day}:")
+        for task_id in task_ids:
+            info = task_info[task_id]
+            print(f"    - {task_id} | {info['name']} -> {info['assignee']}")
