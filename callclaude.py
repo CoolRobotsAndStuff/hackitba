@@ -1,5 +1,5 @@
-# test_gemini.py
-import os, json, requests
+# test_claude.py
+import os, json, requests, uuid
 from dotenv import load_dotenv
 from collections import deque
 from copy import copy, deepcopy
@@ -13,11 +13,6 @@ load_dotenv()
 # =============================================================================
 
 def context_to_tasks(context):
-    """
-    Convierte el contexto JSON al formato que espera el algoritmo:
-        {"name": "...", "deps": [0, 2], "days": 3}
-    Las dependencias pasan de IDs de Jira ("PROJ-02") a indices numericos (1).
-    """
     all_tasks = context["all_tasks"]
     id_to_index = {task["id"]: i for i, task in enumerate(all_tasks)}
     tasks = [
@@ -31,10 +26,6 @@ def context_to_tasks(context):
     return tasks, id_to_index
 
 def timeline_to_jira_ids(timeline, task_parts, context):
-    """
-    Convierte el timeline de indices internos del algoritmo a IDs de Jira.
-    Usa task_parts para mapear nodos expandidos (dias) de vuelta a su tarea original.
-    """
     index_to_id = {i: task["id"] for i, task in enumerate(context["all_tasks"])}
     return [[index_to_id[task_parts[idx]] for idx in day] for day in timeline]
 
@@ -118,31 +109,11 @@ contexto = {
     }
   ],
   "team_members": [
-    {
-      "email": "pedro.martinez@empresa.com",
-      "name": "Pedro Martinez",
-      "available_days": 4
-    },
-    {
-      "email": "juan.perez@empresa.com",
-      "name": "Juan Perez",
-      "available_days": 4
-    },
-    {
-      "email": "maria.lopez@empresa.com",
-      "name": "Maria Lopez",
-      "available_days": 4
-    },
-    {
-      "email": "lucas.fernandez@empresa.com",
-      "name": "Lucas Fernandez",
-      "available_days": 5
-    },
-    {
-      "email": "cacho.gomez@empresa.com",
-      "name": "Cacho Gomez",
-      "available_days": 3
-    }
+    {"email": "pedro.martinez@empresa.com", "name": "Pedro Martinez", "available_days": 4},
+    {"email": "juan.perez@empresa.com",     "name": "Juan Perez",     "available_days": 4},
+    {"email": "maria.lopez@empresa.com",    "name": "Maria Lopez",    "available_days": 4},
+    {"email": "lucas.fernandez@empresa.com","name": "Lucas Fernandez","available_days": 5},
+    {"email": "cacho.gomez@empresa.com",    "name": "Cacho Gomez",    "available_days": 3}
   ]
 }
 
@@ -167,6 +138,15 @@ for day in timeline_jira:
 # PASO 2 — CLAUDE ASIGNA PERSONAS Y GENERA EL SUMMARY
 # =============================================================================
 
+# (dev) MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp-test/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
+MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
+
+HEADERS = {
+    "x-api-key": os.getenv("ANTHROPIC_API_KEY"),
+    "anthropic-version": "2023-06-01",
+    "Content-Type": "application/json"
+}
+
 payload_claude = {
     "context": contexto,
     "computed_timeline": timeline_jira,
@@ -180,11 +160,7 @@ print("Llamando a Claude...")
 
 response = requests.post(
     "https://api.anthropic.com/v1/messages",
-    headers={
-        "x-api-key": os.getenv("ANTHROPIC_API_KEY"),
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json"
-    },
+    headers=HEADERS,
     json={
         "model": "claude-sonnet-4-20250514",
         "max_tokens": 1024,
@@ -250,10 +226,11 @@ response = requests.post(
                     },
                     "required": ["summary", "actions", "task_order"]
                 }
-            }
+            },
         ],
         "tool_choice": {"type": "tool", "name": "propose_reschedule_plan"}
-    }
+    },
+    verify=False  # permissive SSL
 )
 
 # =============================================================================
@@ -266,36 +243,108 @@ if response.status_code != 200:
     print(f"\nERROR HTTP {response.status_code}:")
     print(json.dumps(data, indent=2))
 else:
-    plan = data["content"][0]["input"]
+    plan = next(
+        (block["input"] for block in data["content"] if block.get("name") == "propose_reschedule_plan"),
+        None
+    )
 
-    plan["task_order"] = {
-        "before": order_before,
-        "after": order_after
-    }
-
-    print(json.dumps(plan, indent=2, ensure_ascii=False))
-
-    # Mapa de reasignaciones propuestas por Claude
-    reassignments = {
-        action["task_id"]: action["new_assignee"]
-        for action in plan["actions"]
-        if action["type"] == "reassign_task" and "task_id" in action and "new_assignee" in action
-    }
-
-    email_to_name = {m["email"]: m["name"] for m in contexto["team_members"]}
-
-    # Mapa task_id -> (nombre_tarea, nombre_asignado)
-    task_info = {}
-    for task in contexto["all_tasks"]:
-        assignee_email = reassignments.get(task["id"], task["assignee"])
-        task_info[task["id"]] = {
-            "name": task["name"],
-            "assignee": email_to_name.get(assignee_email, assignee_email)
+    if plan is None:
+        print("No se encontro el bloque propose_reschedule_plan:")
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        plan["task_order"] = {
+            "before": order_before,
+            "after": order_after
         }
 
-    print()
-    for day, task_ids in enumerate(timeline_jira):
-        print(f"Day {day}:")
-        for task_id in task_ids:
-            info = task_info[task_id]
-            print(f"    - {task_id} | {info['name']} -> {info['assignee']}")
+        print(json.dumps(plan, indent=2, ensure_ascii=False))
+
+        # =====================================================================
+        # PASO 4 — ENVIAR EL PLAN AL MCP SERVER (JSON-RPC over SSE)
+        # =====================================================================
+
+        def mcp_call(method, params=None):
+            """Send a JSON-RPC request to the MCP server and return the result."""
+            payload = {
+                "jsonrpc": "2.0",
+                "id": str(uuid.uuid4()),
+                "method": method,
+                "params": params or {}
+            }
+            resp = requests.post(
+                MCP_SERVER_URL,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {os.getenv('N8N_API_KEY')}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json, text/event-stream",
+                },
+                verify=False,
+                stream=True,
+            )
+            result_text = ""
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                decoded = line.decode("utf-8") if isinstance(line, bytes) else line
+                if decoded.startswith("data:"):
+                    result_text = decoded[len("data:"):].strip()
+                    break
+            if not result_text:
+                return {"error": f"HTTP {resp.status_code} — no data received"}
+            try:
+                return json.loads(result_text)
+            except json.JSONDecodeError:
+                return {"raw": result_text}
+
+        print("\nConectando al MCP server (n8n)...")
+
+        # 1. Initialize the MCP session
+        init = mcp_call("initialize", {
+            "protocolVersion": "2024-11-05",
+            "clientInfo": {"name": "hackitba-orchestrator", "version": "1.0"},
+            "capabilities": {}
+        })
+        print(f"MCP init: {json.dumps(init, indent=2)}")
+
+        # 2. Discover available tools
+        tools_resp = mcp_call("tools/list")
+        available_tools = tools_resp.get("result", {}).get("tools", [])
+        print(f"MCP tools disponibles: {[t['name'] for t in available_tools]}")
+
+        # 3. Call the first available tool with the plan
+        if available_tools:
+            tool_name = available_tools[0]["name"]
+            print(f"\nLlamando tool MCP '{tool_name}'...")
+            tool_result = mcp_call("tools/call", {
+                "name": tool_name,
+                "arguments": plan
+            })
+            print(f"MCP tool result: {json.dumps(tool_result, indent=2, ensure_ascii=False)}")
+        else:
+            print("No se encontraron tools en el MCP server.")
+
+        reassignments = {
+            action["task_id"]: action["new_assignee"]
+            for action in plan["actions"]
+            if action["type"] == "reassign_task"
+            and "task_id" in action
+            and "new_assignee" in action
+        }
+
+        email_to_name = {m["email"]: m["name"] for m in contexto["team_members"]}
+
+        task_info = {}
+        for task in contexto["all_tasks"]:
+            assignee_email = reassignments.get(task["id"], task["assignee"])
+            task_info[task["id"]] = {
+                "name": task["name"],
+                "assignee": email_to_name.get(assignee_email, assignee_email)
+            }
+
+        print()
+        for day, task_ids in enumerate(timeline_jira):
+            print(f"Day {day}:")
+            for task_id in task_ids:
+                info = task_info[task_id]
+                print(f"    - {task_id} | {info['name']} -> {info['assignee']}")
