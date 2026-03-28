@@ -138,8 +138,8 @@ for day in timeline_jira:
 # PASO 2 — CLAUDE ASIGNA PERSONAS Y GENERA EL SUMMARY
 # =============================================================================
 
-# (dev) MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp-test/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
-MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
+MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp-test/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
+#MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
 
 HEADERS = {
     "x-api-key": os.getenv("ANTHROPIC_API_KEY"),
@@ -275,7 +275,7 @@ else:
                 MCP_SERVER_URL,
                 json=payload,
                 headers={
-                    "Authorization": f"Bearer {os.getenv('N8N_API_KEY')}",
+                    #"Authorization": f"Bearer {os.getenv('N8N_API_KEY')}",
                     "Content-Type": "application/json",
                     "Accept": "application/json, text/event-stream",
                 },
