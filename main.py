@@ -11,6 +11,12 @@ conn.commit()
 def index():
     return render_template("./index.html")
 
+@app.route("/incoming-event", methods=['POST'])
+def incoming_event():
+    data = request.get_json(silent=True)
+    print('Received event:', data)
+    return jsonify({'status': 'ok'}), 200
+
 @app.route('/tasks', methods=['POST'])
 def receive_tasks():
     data = request.get_json(silent=True)
