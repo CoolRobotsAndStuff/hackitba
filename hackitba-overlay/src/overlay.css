@@ -117,8 +117,10 @@ body {
   line-height: 1.55;
   animation: slideIn 0.25s ease;
   margin-top: 3px;
-  max-width: 85%;
+  max-width: 82%;
   font-weight: 400;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 /* User — right aligned */
@@ -302,16 +304,23 @@ body {
 .cfg-save-msg { text-align: center; font-size: 11px; color: var(--status-done); margin-top: 8px; height: 14px; }
 
 /* ── Graph ── */
-#graph-panel { padding: 10px; flex-direction: column; gap: 8px; }
+#graph-panel {
+  padding: 6px 10px 6px 10px;
+  display: flex; flex-direction: column;
+  flex: 1; gap: 0;
+}
 #graph-panel canvas {
   width: 100%; flex: 1; border-radius: 6px;
   background: rgba(232,213,186,0.02); border: 1px solid var(--border-warm);
-  cursor: grab;
+  cursor: grab; min-height: 0;
 }
 #graph-panel canvas.dragging { cursor: grabbing; }
-.graph-legend { display: flex; gap: 12px; flex-wrap: wrap; padding: 4px 0; }
-.graph-legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--warm-white-dim); }
-.graph-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+.graph-legend {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  padding: 5px 0 2px 0; flex-shrink: 0;
+}
+.graph-legend-item { display: flex; align-items: center; gap: 4px; font-size: 9px; color: var(--warm-white-dim); }
+.graph-legend-dot { width: 7px; height: 7px; border-radius: 50%; }
 
 /* ── History ── */
 #history-panel { padding: 10px 14px; flex-direction: column; gap: 4px; }
@@ -353,3 +362,66 @@ body {
   letter-spacing: 0.5px; transition: all 0.15s; margin-bottom: 6px; flex-shrink: 0;
 }
 .team-refresh-btn:hover { background: rgba(232,213,186,0.08); color: var(--amber); }
+
+/* ── Notifications (external events — subtle, not boxed) ── */
+.feed-notification {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--warm-white-dim);
+  padding: 3px 0 3px 10px;
+  border-left: 1px solid rgba(152,120,80,0.2);
+  margin: 2px 0;
+  animation: slideIn 0.2s ease;
+}
+.feed-notification .notif-source {
+  font-size: 9px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: rgba(232,213,186,0.25);
+  margin-right: 4px;
+}
+
+/* ── Plan creation — timeline items ── */
+.plan-group {
+  margin: 6px 0 2px 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--bar-accent);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  animation: slideIn 0.25s ease;
+}
+.plan-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--warm-white-dim);
+  padding: 4px 0 2px 0;
+  margin-bottom: 2px;
+}
+.plan-task {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--warm-white-soft);
+  padding: 1px 0;
+}
+.plan-task .plan-assignee {
+  font-size: 10px;
+  color: var(--amber);
+  flex-shrink: 0;
+}
+.plan-task .plan-date {
+  font-size: 9px;
+  color: var(--warm-white-dim);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.plan-note {
+  font-size: 10px;
+  color: rgba(232,213,186,0.3);
+  padding: 2px 0 4px 0;
+  font-style: italic;
+}

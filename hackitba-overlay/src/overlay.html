@@ -28,7 +28,7 @@
 
     <div class="tab-panel active" id="panel-chat" data-tab="chat">
       <div id="feed">
-        <div class="feed-msg neutral">Contame qué pasó. Ejemplo: "Juan se atrasó 2 días en T-14, el deadline es el viernes"</div>
+        <div class="feed-msg neutral">Contame qué pasó o qué necesitás planificar. Ejemplo: "Juan se atrasó 2 días en T-14" o "creá un plan para tener un MVP del rover para el 18 de junio"</div>
       </div>
     </div>
 
@@ -66,7 +66,7 @@
           <button class="confirm-btn" id="btn-reject">Cancelar</button>
         </div>
       </div>
-      <textarea id="prompt-input" rows="2" placeholder="Describí el problema..."></textarea>
+      <textarea id="prompt-input" rows="2" placeholder="Describí un problema o pedí un plan..."></textarea>
       <button id="send-btn">Enviar</button>
     </div>
 
@@ -187,25 +187,44 @@ async function sendPromptToBackend(){
   const thinkingItem=addThinking()
 
   try{
-    const response=await fetch(`${backendUrl}/report-delay`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
+    // Unified endpoint — backend decides if this is a delay report or a plan creation
+    const response=await fetch(`${backendUrl}/prompt`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
     thinkingItem.remove();logoState='idle'
     if(!response.ok) throw new Error(`Error ${response.status}`)
     const data=await response.json();currentPlan=data
     if(data.dependency_graph) graphData=data.dependency_graph
 
+    // AI summary message
     addMsg(data.summary,'ai')
 
-    if(data.actions&&data.actions.length>0){
-      const actionLines=data.actions.map(action=>{
-        const labels={
-          update_calendar_event:`Mover evento ${action.target_id} al ${action.params?.new_start?.split('T')[0]||'?'}`,
-          update_jira_issue:`Reasignar ${action.target_id} → ${action.params?.new_assignee||'?'}`,
-          notify_slack:'Notificar al equipo'
-        }
-        return{text:labels[action.type]||JSON.stringify(action)}
-      })
-      addActionGroup(actionLines)
+    // Render based on response type
+    if (data.type === 'plan') {
+      // Plan creation — show timeline phases
+      renderPlanTimeline(data)
+    } else {
+      // Delay/adjustment — show flat action list
+      if(data.actions&&data.actions.length>0){
+        const actionLines=data.actions.map(action=>{
+          const labels={
+            update_calendar_event:`Mover evento ${action.target_id} al ${action.params?.new_start?.split('T')[0]||'?'}`,
+            update_jira_issue:`Reasignar ${action.target_id} → ${action.params?.new_assignee||'?'}`,
+            update_jira_duedate:`Actualizar deadline de ${action.target_id} al ${action.params?.due_date||'?'}`,
+            notify_slack:'Notificar al equipo',
+            create_jira_issue:`Crear tarea: ${action.params?.summary||action.target_id||''}`,
+            create_calendar_event:`Crear evento: ${action.params?.summary||action.target_id||''}`,
+            create_github_issue:`Crear issue: ${action.params?.title||action.target_id||''}`
+          }
+          return{text:labels[action.type]||JSON.stringify(action)}
+        })
+        addActionGroup(actionLines)
+      }
     }
+
+    // History-based warnings (if backend flagged risk members)
+    if (data.warnings && data.warnings.length > 0) {
+      data.warnings.forEach(w => addNotification('HALeph', w))
+    }
+
     confirmText.textContent=`¿Ejecutar ${data.actions?.length||0} cambios?`
     confirmBar.classList.add('visible')
   }catch(err){
@@ -215,18 +234,73 @@ async function sendPromptToBackend(){
   sendBtn.disabled=false
 }
 
+// Render a full plan timeline with phases/groups
+function renderPlanTimeline(data) {
+  const phases = data.phases || []
+  if (phases.length === 0 && data.actions && data.actions.length > 0) {
+    // Fallback: no phases, just flat actions grouped as one
+    const actionLines = data.actions.map(a => {
+      const labels = {
+        create_jira_issue: `Crear tarea: ${a.params?.summary||a.target_id||''}`,
+        create_calendar_event: `Crear evento: ${a.params?.summary||a.target_id||''}`,
+        create_github_issue: `Crear issue: ${a.params?.title||a.target_id||''}`,
+        update_jira_issue: `Actualizar ${a.target_id}`,
+        notify_slack: 'Notificar al equipo'
+      }
+      return { text: labels[a.type] || JSON.stringify(a) }
+    })
+    addActionGroup(actionLines)
+    return
+  }
+
+  phases.forEach(phase => {
+    const group = document.createElement('div')
+    group.className = 'plan-group'
+
+    // Phase header (e.g. "Semana 1 — Diseño", "Jun 2-6 — Prototipo")
+    if (phase.name) {
+      const hdr = document.createElement('div')
+      hdr.className = 'plan-header'
+      hdr.textContent = phase.name
+      group.appendChild(hdr)
+    }
+
+    // Tasks within this phase
+    ;(phase.tasks || []).forEach(task => {
+      const line = document.createElement('div')
+      line.className = 'plan-task'
+      let html = task.title || task.summary || ''
+      if (task.assignee) html = `<span class="plan-assignee">${task.assignee}</span>` + html
+      if (task.date || task.due) html += `<span class="plan-date">${task.date || task.due}</span>`
+      line.innerHTML = html
+      group.appendChild(line)
+    })
+
+    // Phase note (e.g. risk warning from history analysis)
+    if (phase.note) {
+      const note = document.createElement('div')
+      note.className = 'plan-note'
+      note.textContent = phase.note
+      group.appendChild(note)
+    }
+
+    feed.appendChild(group)
+  })
+  feed.scrollTop = feed.scrollHeight
+}
+
 async function executePlan(){
   if(!currentPlan)return
   confirmBar.classList.remove('visible');logoState='thinking'
   addActionGroup([{text:'Ejecutando cambios...'}])
   try{
-    const response=await fetch(`${backendUrl}/execute-plan`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actions:currentPlan.actions})})
+    const response=await fetch(`${backendUrl}/execute-plan`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actions:currentPlan.actions, type: currentPlan.type || 'adjust'})})
     if(!response.ok) throw new Error(`Error ${response.status}`)
     const result=await response.json()
     const resultLines=(result.results||[]).map(r=>({text:r.message||(r.success?'Cambio ejecutado':'Error al ejecutar'),cls:r.success?'done':'error'}))
     addActionGroup(resultLines)
     addMsg('Todos los cambios aplicados.','done-msg')
-    await window.electron.addHistoryEntry({prompt:currentPlan.prompt||'',summary:currentPlan.summary||'',actions:currentPlan.actions||[],results:result.results||[],sources:(currentPlan.actions||[]).map(a=>a.type).filter((v,i,s)=>s.indexOf(v)===i)})
+    await window.electron.addHistoryEntry({prompt:currentPlan.prompt||'',summary:currentPlan.summary||'',actions:currentPlan.actions||[],results:result.results||[],sources:(currentPlan.actions||[]).map(a=>a.type).filter((v,i,s)=>s.indexOf(v)===i),type:currentPlan.type||'adjust'})
   }catch(err){addMsg(`Error al ejecutar: ${err.message}`,'error')}
   logoState='idle';currentPlan=null
 }
@@ -297,7 +371,7 @@ const SPRING_K = 0.035        // spring stiffness along edges
 const SPRING_LEN = 90         // rest length of springs
 const REPULSION = 2200        // repulsion between all node pairs
 const DAMPING = 0.78          // velocity decay per frame (lower = bouncier)
-const CENTER_G = 0.0015       // gentle pull toward canvas center
+const CENTER_G = 0.0003       // very gentle pull toward canvas center
 
 const statusColors = {
   done: '#D4C0A0',
@@ -308,8 +382,8 @@ const statusColors = {
 
 function initGraphNodes(data) {
   const rect = graphCanvas.parentElement.getBoundingClientRect()
-  graphW = rect.width - 20
-  graphH = rect.height - 60
+  graphW = rect.width - 12
+  graphH = rect.height - 28  // just legend height + padding
   graphCanvas.width = graphW * 2
   graphCanvas.height = graphH * 2
   graphCanvas.style.width = graphW + 'px'
@@ -529,11 +603,20 @@ async function pollPendingEvents() {
     const data = await r.json()
     const events = data.events || []
     events.forEach(ev => {
-      const sourceLabel = { jira: '⬡ Jira', google_calendar: '◈ Calendar', slack: '◎ Slack' }[ev.source] || ev.source
-      const msg = ev.message || `${sourceLabel}: ${JSON.stringify(ev.data)}`
-      addMsgHtml(`<span style="color:var(--warm-white-dim);font-size:10px">${sourceLabel}</span><br>${msg}`, 'neutral')
+      const sourceLabel = { jira: 'Jira', google_calendar: 'Calendar', slack: 'Slack', github: 'GitHub' }[ev.source] || ev.source
+      const msg = ev.message || JSON.stringify(ev.data)
+      addNotification(sourceLabel, msg)
     })
   } catch (_) { /* falla silenciosamente */ }
+}
+
+function addNotification(source, text) {
+  const el = document.createElement('div')
+  el.className = 'feed-notification'
+  el.innerHTML = `<span class="notif-source">${source}</span>${text}`
+  feed.appendChild(el)
+  feed.scrollTop = feed.scrollHeight
+  return el
 }
 
 function startPolling() {
@@ -561,10 +644,10 @@ async function loadHistory(){
     const el=document.createElement('div');el.className='history-entry'
     const date=new Date(entry.timestamp)
     const ts=date.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
-    const sourceLabels={update_calendar_event:'Calendar',update_jira_issue:'Jira',notify_slack:'Slack',update_github:'GitHub',send_email:'Email'}
+    const sourceLabels={update_calendar_event:'Calendar',update_jira_issue:'Jira',update_jira_duedate:'Jira',notify_slack:'Slack',update_github:'GitHub',send_email:'Email',create_jira_issue:'Jira',create_calendar_event:'Calendar',create_github_issue:'GitHub'}
     const sources=(entry.sources||[]).map(s=>sourceLabels[s]||s).join(' · ')
     let ah='';if(entry.actions&&entry.actions.length>0){
-      ah='<div class="history-actions-bar">'+entry.actions.map(a=>{const l={update_calendar_event:`Mover evento ${a.target_id||''}`,update_jira_issue:`Reasignar ${a.target_id||''}`,notify_slack:'Notificar equipo'};return`<span>${l[a.type]||a.type}</span>`}).join('')+'</div>'
+      ah='<div class="history-actions-bar">'+entry.actions.map(a=>{const l={update_calendar_event:`Mover evento ${a.target_id||''}`,update_jira_issue:`Reasignar ${a.target_id||''}`,update_jira_duedate:`Deadline ${a.target_id||''}`,notify_slack:'Notificar equipo',create_jira_issue:`Crear: ${a.params?.summary||a.target_id||''}`,create_calendar_event:`Evento: ${a.params?.summary||a.target_id||''}`,create_github_issue:`Issue: ${a.params?.title||a.target_id||''}`};return`<span>${l[a.type]||a.type}</span>`}).join('')+'</div>'
     }
     el.innerHTML=`<div class="h-time">${ts}</div><div class="h-prompt">${entry.summary||entry.prompt||''}</div>${sources?`<div class="h-source">${sources}</div>`:''}${ah}`
     historyList.appendChild(el)

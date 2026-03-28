@@ -27,6 +27,93 @@ _pending_cycle = [
 _pending_index = 0
 
 
+@app.route('/prompt', methods=['POST'])
+def unified_prompt():
+    """Unified endpoint — the frontend sends everything here.
+    Detects intent from the prompt text and returns the appropriate response."""
+    data = request.json
+    prompt = data.get('prompt', '').lower()
+
+    # Simple intent detection — in production this would be an LLM call
+    plan_keywords = ['plan', 'crea', 'crear', 'armar', 'armá', 'planific', 'mvp', 'proyecto', 'cronograma', 'organiz']
+    is_plan = any(kw in prompt for kw in plan_keywords)
+
+    if is_plan:
+        return create_plan_response(data)
+    else:
+        return report_delay()
+
+
+def create_plan_response(data):
+    """Mock plan creation response with phases and history-based warnings."""
+    return jsonify({
+        "type": "plan",
+        "summary": "Plan generado: 3 fases hasta el deadline. Se asignó soporte extra a Pedro en Fase 1 por historial de atrasos en tareas de infraestructura.",
+        "phases": [
+            {
+                "name": "Fase 1 — Setup (Semana 1)",
+                "tasks": [
+                    {"assignee": "Juan ", "title": "Configurar repositorio y CI/CD", "date": "Lun"},
+                    {"assignee": "Pedro ", "title": "Provisionar infraestructura", "date": "Mar"},
+                    {"assignee": "María ", "title": "Diseño de arquitectura frontend", "date": "Mar"},
+                    {"assignee": "Juan ", "title": "Soporte infra con Pedro", "date": "Mié"}
+                ],
+                "note": "Juan asignado como backup de Pedro — historial indica atrasos frecuentes en tareas de infra"
+            },
+            {
+                "name": "Fase 2 — Desarrollo (Semana 2-3)",
+                "tasks": [
+                    {"assignee": "Juan ", "title": "Auth service + API core", "date": "Sem 2"},
+                    {"assignee": "Pedro ", "title": "Deploy pipeline + staging", "date": "Sem 2"},
+                    {"assignee": "María ", "title": "Dashboard + integración API", "date": "Sem 2-3"}
+                ]
+            },
+            {
+                "name": "Fase 3 — Testing y deploy (Semana 4)",
+                "tasks": [
+                    {"assignee": "Todos ", "title": "Integración completa", "date": "Lun"},
+                    {"assignee": "Pedro ", "title": "Deploy a producción", "date": "Mié"},
+                    {"assignee": "María ", "title": "Demo + presentación", "date": "Vie"}
+                ]
+            }
+        ],
+        "actions": [
+            {"type": "create_jira_issue", "target_id": "KAN-10", "params": {"summary": "Configurar repositorio y CI/CD"}},
+            {"type": "create_jira_issue", "target_id": "KAN-11", "params": {"summary": "Provisionar infraestructura"}},
+            {"type": "create_jira_issue", "target_id": "KAN-12", "params": {"summary": "Diseño arquitectura frontend"}},
+            {"type": "create_jira_issue", "target_id": "KAN-13", "params": {"summary": "Auth service + API core"}},
+            {"type": "create_jira_issue", "target_id": "KAN-14", "params": {"summary": "Deploy pipeline + staging"}},
+            {"type": "create_jira_issue", "target_id": "KAN-15", "params": {"summary": "Dashboard + integración API"}},
+            {"type": "create_calendar_event", "target_id": "demo_final", "params": {"summary": "Demo + presentación MVP"}},
+            {"type": "notify_slack", "target_id": "general", "params": {"message": "Nuevo plan creado: MVP en 4 semanas"}}
+        ],
+        "warnings": [
+            "Pedro completó 2/4 tareas de infra con retraso en el último sprint. Se asignó a Juan como backup."
+        ],
+        "dependency_graph": {
+            "nodes": [
+                {"id": "KAN-10", "label": "Repo + CI",     "status": "todo",     "x": 0.2,  "y": 0.1},
+                {"id": "KAN-11", "label": "Infra",         "status": "todo",     "x": 0.5,  "y": 0.1},
+                {"id": "KAN-12", "label": "Diseño FE",     "status": "todo",     "x": 0.8,  "y": 0.1},
+                {"id": "KAN-13", "label": "Auth + API",    "status": "todo",     "x": 0.3,  "y": 0.45},
+                {"id": "KAN-14", "label": "Deploy pipe",   "status": "todo",     "x": 0.7,  "y": 0.45},
+                {"id": "KAN-15", "label": "Dashboard",     "status": "todo",     "x": 0.5,  "y": 0.45},
+                {"id": "INT",    "label": "Integración",   "status": "todo",     "x": 0.5,  "y": 0.75},
+                {"id": "DEMO",   "label": "Demo MVP",      "status": "todo",     "x": 0.5,  "y": 0.95}
+            ],
+            "edges": [
+                {"from": "KAN-10", "to": "KAN-13"},
+                {"from": "KAN-11", "to": "KAN-14"},
+                {"from": "KAN-12", "to": "KAN-15"},
+                {"from": "KAN-13", "to": "INT"},
+                {"from": "KAN-14", "to": "INT"},
+                {"from": "KAN-15", "to": "INT"},
+                {"from": "INT", "to": "DEMO"}
+            ]
+        }
+    })
+
+
 @app.route('/report-delay', methods=['POST'])
 def report_delay():
     return jsonify({
@@ -83,6 +170,9 @@ def execute_plan():
         "update_jira_issue":     "Issue de Jira reasignada",
         "update_jira_duedate":   "Due date actualizada en Jira",
         "notify_slack":          "Notificación enviada al equipo",
+        "create_jira_issue":     "Issue creada en Jira",
+        "create_calendar_event": "Evento creado en Calendar",
+        "create_github_issue":   "Issue creada en GitHub",
     }
     results = []
     for action in actions:
@@ -145,7 +235,8 @@ def incoming_event():
 
 if __name__ == '__main__':
     print("HALeph mock server en http://localhost:8000")
-    print("  POST /report-delay")
+    print("  POST /prompt          ← unified (el frontend usa este)")
+    print("  POST /report-delay    ← legacy")
     print("  POST /execute-plan")
     print("  GET  /team-status")
     print("  GET  /pending-events")
