@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="<!--GET_LANGUAGE-->" theme="<!--GET_PARAM theme-->">
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="/static/favicon.ico">
+
+<style>
+    html { /* [theme="dark"] */
+        /*--background-color: #212529;*/
+        --background-color: #111519;
+        --background-hover: #2b3035;
+        --borders: #424649;
+        --text-color: #dee2e6
+    }
+
+    html[theme="light"] {
+        --background-color: #f5f5fa;
+        --background-hover: #f8f9fa;
+        --borders: #cacace;
+        --text-color: #212529;
+    }
+
+    button, select {
+        font-family: "Ubuntu";
+        background-color: var(--background-color);
+        color: var(--text-color);
+        border: 0.5px solid;
+        font-size: 1em;
+        border-radius: 5px;
+    }
+    button:hover {
+        background-color: var(--background-hover);
+    }
+    
+
+    body {
+        font-family: "Ubuntu";
+        background-color: var(--background-color);
+        color: var(--text-color);
+        padding-left: 5vw;
+        padding-right: 5vw;
+        padding-top: 1vw;
+        padding-bottom: 1rem;
+    }
+
+    @media (max-width: 1000px) {
+        body {
+            padding-left: 3vw;
+            padding-right: 3vw;
+        }
+    }
+
+    h1 { font-size: 2.5rem; }
+    h2 { font-size: 2rem; }
+    h3 { font-size: 1.5rem; }
+    h4 { font-size: 1rem; }
+    h5 { font-size: 0.5rem; }
+    h6 { font-size: 0.25rem; }
+
+    h1, h2, h3, h4, h5, h6 {
+        font-weight: normal;
+        margin-bottom: 0.4rem;
+    }
+
+    a {
+        color: cyan
+    }
+
+    /* navbar */
+
+    html { /* [theme="dark"] */
+        --nav-color: #b1b3b4; 
+        --nav-highlight: #ffffff;
+        --nav-hover: #d2d3d4;
+    }
+
+    html[theme="light"] {
+        --nav-color: #565657; 
+        --nav-highlight: #000000;
+        --nav-hover: #313132;
+
+    }
+
+    .dropdown-button {
+        padding: 10px 10px;
+        color: var(--nav-color);
+        border: none;
+        cursor: pointer;
+        user-select: none; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none;
+        transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    .dropdown-content {
+        background-color: var(--background-color);
+        min-width: 160px;
+        border: 1px solid var(--borders);
+        border-radius: 10px;
+        margin-top: 10px;
+    }
+
+    .dropdown-content a {
+        color: var(--nav-highlight);
+        padding: 5px 16px;
+        margin: 5px 0px;
+        text-decoration: none;
+    }
+
+    .dropdown-content a:hover {
+        background-color: var(--background-hover);
+    }
+
+    .nav-link {
+        color: var(--nav-color);
+        text-decoration: none;
+        padding-left: 15px;
+        padding-right: 15px;
+        padding-bottom: 15px;
+        margin-right: -5px;
+        margin-left: -5px;
+        transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    .nav-link:hover        { color: var(--nav-hover); }
+    .dropdown-button:hover { color: var(--nav-hover); }
+
+    .navbar { padding-top: 15px; }
+
+    .dropdown-toggle:checked + .dropdown-button { color: var(--nav-highlight); }
+
+    .menu-button {
+        padding: 15px;
+        border: solid 1px var(--borders);
+        border-radius: 10px;
+    }
+
+    .menu-bars {
+        width: 25px;
+        height: 15px;
+        padding: 0;
+    }
+
+    .menu-bar {
+        background:var(--nav-color);
+        height: 2px;
+    }
+
+    .menu-content {
+        transition: height .5s ease-in-out;
+        padding-top: 15px
+    }
+
+    .menu-toggle:checked + .menu-button + .menu-content {
+        height: 11em;
+    }
+</style>
+
+
+<style>
+#list {
+    max-width: 480px;
+    margin: 8px 0;
+    position: relative;
+}
+
+.card {
+    background-color: var(--background-color) !important;
+    padding: 12px;
+    margin: 6px 0;
+    border: 1px solid #444;
+    border-radius: 6px;
+    background: #fff;
+    cursor: grab;
+    user-select: none;
+    position: relative;
+    z-index: 0;
+    transition: box-shadow 0.12s ease, transform 0.08s ease;
+}
+
+.card[aria-grabbed="true"] {
+    cursor: grabbing;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+
+.placeholder {
+    box-sizing: border-box;
+    border: 2px dashed #999;
+    margin: 6px 0;
+    border-radius: 6px;
+    background: rgba(0,0,0,0.02);
+}
+</style>
+
+
+<script>
+    // Auto-close dropdowns on click
+    var dropdowns = Array.from(document.getElementsByClassName('dropdown-toggle'))
+    window.onclick = function(event) {
+        // Ignore duplicate events for clicking on the label itself or children
+        if (event.target.closest('.dropdown-button')) {
+            return
+        }
+
+        for (var i = 0; i < dropdowns.length; i++) {
+            if (dropdowns[i] !== event.target) {
+                dropdowns[i].checked = false
+            }
+        }
+    }
+</script>
+
+<style>
+    div[dependencies] {
+        padding: 10px;
+        padding-left: 10%;
+        padding-right: 10%;
+    }
+
+    div[dependencies] > div{ 
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1em;
+    }
+
+    button[remove-task], button[add-task] {
+        margin-bottom: 10px;
+        border-radius: 1000px;
+        width: 2em;
+        height: 2em;
+    }
+
+    button[add-task] {
+    }
+
+    select {
+        margin-bottom: 10px;
+        padding: 10px;
+        flex: 1;
+    }
+
+    div[spacer] {
+        flex: 1;
+    }
+
+</style>
+
+<body>
+    {% include 'navbar.html' %}
+    <h1>Tasks</h1>
+
+    <div id="list" aria-label="Draggable card list" role="list">
+        <div class="card" tabindex="0" role="listitem" data-id="1">
+            <h3> Task 1 </h3>
+            Dependencies
+
+            <div dependencies>
+                <div>
+                    <select id="choice" name="choice">
+                        <option value="2">Task2</option>
+                        <option value="3">Task3</option>
+                        <option value="4">Task4</option>
+                    </select> 
+                    <button remove-task>-</button>
+                </div>
+
+                <div>
+                    <select id="choice" name="choice">
+                        <option value="a">Option A</option>
+                        <option value="b">Option B</option>
+                        <option value="c">Option C</option>
+                    </select> 
+                    <button remove-task>-</button>
+                </div>
+
+                <div>
+                    <div spacer></div> <button add-task>+</button>
+                </div>
+            </div>
+        </div>
+        <div class="card" tabindex="0" role="listitem" data-id="2">Card 2</div>
+        <div class="card" tabindex="0" role="listitem" data-id="3">Card 3</div>
+        <div class="card" tabindex="0" role="listitem" data-id="4">Card 4</div>
+        <div class="card" tabindex="0" role="listitem" data-id="5">Card 5</div>
+    </div>
+<script>
+
+const list = document.getElementById('list');
+let dragged = null;
+let placeholder = null;
+let offsetX = 0, offsetY = 0;
+let pointerId = null;
+function sendTasks() {
+    const tasks = window.getTasks();
+    fetch('/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tasks })
+    }).catch(err => {
+        console.error('Failed to send tasks', err);
+    });
+}
+
+function createPlaceholder(height, width) {
+    const ph = document.createElement('div');
+    ph.className = 'placeholder';
+    ph.style.height = height + 'px';
+    ph.style.width = width + 'px';
+    return ph;
+}
+
+function setDraggingStyles(el, dragging) {
+    if (!el) return;
+    if (dragging) {
+        el.style.zIndex = '1000';
+        el.style.transform = 'translateZ(0)';
+    } else {
+        el.style.zIndex = '0';
+        el.style.transform = '';
+    }
+}
+
+list.addEventListener('pointerdown', e => {
+    const el = e.target.closest('.card');
+    const but = e.target.closest('button[remove-task]');
+    const but2 = e.target.closest('button[add-task]');
+    const sel = e.target.closest('select');
+    if (!el || but || but2 || sel) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    pointerId = e.pointerId;
+    dragged = el;
+    const rect = el.getBoundingClientRect();
+    offsetX = e.clientX - rect.left;
+    offsetY = e.clientY - rect.top;
+
+    placeholder = createPlaceholder(rect.height, rect.width);
+    list.insertBefore(placeholder, el.nextSibling);
+
+    const bodyRect = document.body.getBoundingClientRect();
+    dragged.style.position = 'fixed';
+    dragged.style.left = (rect.left - bodyRect.left) + 'px';
+    dragged.style.top = (rect.top - bodyRect.top) + 'px';
+    dragged.style.width = rect.width + 'px';
+    dragged.setAttribute('aria-grabbed', 'true');
+    setDraggingStyles(dragged, true);
+});
+
+window.addEventListener('pointermove', e => {
+    if (!dragged || e.pointerId !== pointerId) return;
+    e.preventDefault();
+    const x = e.clientX - offsetX;
+    const y = e.clientY - offsetY;
+    dragged.style.left = x + 'px';
+    dragged.style.top = y + 'px';
+
+    const cards = Array.from(list.querySelectorAll('.card')).filter(c => c !== dragged);
+    let closest = null;
+    let closestDist = Infinity;
+    for (const c of cards) {
+        const r = c.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const dx = e.clientX - cx;
+        const dy = e.clientY - cy;
+        const dist = Math.hypot(dx, dy);
+        if (dist < closestDist) {
+            closestDist = dist;
+            closest = c;
+        }
+    }
+    if (closest) {
+        const rect = closest.getBoundingClientRect();
+        const midpoint = rect.top + rect.height / 2;
+        if (e.clientY < midpoint) list.insertBefore(placeholder, closest);
+        else list.insertBefore(placeholder, closest.nextSibling);
+    }
+}, {passive:false});
+
+window.addEventListener('pointerup', e => {
+    if (!dragged || e.pointerId !== pointerId) return;
+    e.preventDefault();
+    list.insertBefore(dragged, placeholder);
+    dragged.style.position = 'relative';
+    dragged.style.left = '';
+    dragged.style.top = '';
+    dragged.style.width = '';
+    dragged.removeAttribute('aria-grabbed');
+    setDraggingStyles(dragged, false);
+
+    placeholder.remove();
+    placeholder = null;
+    dragged.releasePointerCapture(pointerId);
+    pointerId = null;
+    dragged = null;
+    sendTasks();
+});
+
+window.addEventListener('pointercancel', e => {
+    if (!dragged) return;
+    if (placeholder && dragged) list.insertBefore(dragged, placeholder);
+    if (dragged) {
+        dragged.style.position = 'relative';
+        dragged.style.left = '';
+        dragged.style.top = '';
+        dragged.style.width = '';
+        dragged.removeAttribute('aria-grabbed');
+        setDraggingStyles(dragged, false);
+    }
+    if (placeholder) { placeholder.remove(); placeholder = null; }
+    if (dragged && pointerId) dragged.releasePointerCapture(pointerId);
+    pointerId = null;
+    dragged = null;
+});
+
+window.getTasks = function() {
+    tasks = Array.from(list.children)
+    ret = []
+    for (var i = 0; i < tasks.length; ++i) {
+        ret.push({"id": tasks[i].dataset.id, "order": i})
+    }
+    return ret;
+};
+</script>
+</body>
