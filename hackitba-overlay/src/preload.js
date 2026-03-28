@@ -2,8 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('electron', {
   hideOverlay: () => ipcRenderer.send('hide-overlay'),
-  openSettings: () => ipcRenderer.send('open-settings'),
   getSettings: () => ipcRenderer.invoke('get-settings'),
-  saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
-  onOverlayOpened: (callback) => ipcRenderer.on('overlay-opened', callback)
+  saveSettings: (s) => ipcRenderer.invoke('save-settings', s),
+  getHistory: () => ipcRenderer.invoke('get-history'),
+  addHistoryEntry: (entry) => ipcRenderer.invoke('add-history-entry', entry),
+  clearHistory: () => ipcRenderer.invoke('clear-history'),
+  onOverlayOpened: (cb) => ipcRenderer.on('overlay-opened', cb)
 })

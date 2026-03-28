@@ -6,12 +6,10 @@ const store = new Store()
 
 let tray = null
 let overlayWindow = null
-let settingsWindow = null
 let isOverlayVisible = false
 
 function createOverlay() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
-
   const overlayHeight = Math.round(height * 0.55)
   const overlayY = height - overlayHeight
 
@@ -40,28 +38,6 @@ function createOverlay() {
   })
 }
 
-function createSettings() {
-  if (settingsWindow) {
-    settingsWindow.focus()
-    return
-  }
-
-  settingsWindow = new BrowserWindow({
-    width: 500,
-    height: 480,
-    resizable: false,
-    title: 'Configuración — HALeph',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  })
-
-  settingsWindow.loadFile(path.join(__dirname, 'settings.html'))
-  settingsWindow.on('closed', () => { settingsWindow = null })
-}
-
 function showOverlay() {
   overlayWindow.show()
   overlayWindow.focus()
@@ -75,11 +51,7 @@ function hideOverlay() {
 }
 
 function toggleOverlay() {
-  if (isOverlayVisible) {
-    hideOverlay()
-  } else {
-    showOverlay()
-  }
+  isOverlayVisible ? hideOverlay() : showOverlay()
 }
 
 app.whenReady().then(() => {
@@ -87,8 +59,7 @@ app.whenReady().then(() => {
   tray = new Tray(icon)
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Abrir overlay (Ctrl+Shift+Space)', click: toggleOverlay },
-    { label: 'Configuración', click: createSettings },
+    { label: 'Abrir overlay (Ctrl+Shift+H)', click: toggleOverlay },
     { type: 'separator' },
     { label: 'Salir', click: () => app.quit() }
   ])
@@ -101,31 +72,40 @@ app.whenReady().then(() => {
   createOverlay()
   setTimeout(() => showOverlay(), 1000)
 
-  globalShortcut.register('CommandOrControl+Shift+Space', toggleOverlay)
+  globalShortcut.register('CommandOrControl+Shift+H', toggleOverlay)
 
   ipcMain.on('hide-overlay', hideOverlay)
-  ipcMain.on('open-settings', createSettings)
 
-  ipcMain.handle('get-settings', () => {
-    return {
-      backendUrl: store.get('backendUrl', ''),
-      jiraDomain: store.get('jiraDomain', ''),
-      teamMembers: store.get('teamMembers', [])
-    }
+  // ── Settings ──
+  ipcMain.handle('get-settings', () => ({
+    backendUrl: store.get('backendUrl', ''),
+    jiraDomain: store.get('jiraDomain', ''),
+    teamMembers: store.get('teamMembers', [])
+  }))
+
+  ipcMain.handle('save-settings', (_, s) => {
+    store.set('backendUrl', s.backendUrl)
+    store.set('jiraDomain', s.jiraDomain)
+    store.set('teamMembers', s.teamMembers)
+    return true
   })
 
-  ipcMain.handle('save-settings', (_, settings) => {
-    store.set('backendUrl', settings.backendUrl)
-    store.set('jiraDomain', settings.jiraDomain)
-    store.set('teamMembers', settings.teamMembers)
+  // ── Action History (persistent) ──
+  ipcMain.handle('get-history', () => store.get('actionHistory', []))
+
+  ipcMain.handle('add-history-entry', (_, entry) => {
+    const h = store.get('actionHistory', [])
+    h.unshift({ ...entry, timestamp: Date.now() })
+    if (h.length > 200) h.length = 200
+    store.set('actionHistory', h)
+    return true
+  })
+
+  ipcMain.handle('clear-history', () => {
+    store.set('actionHistory', [])
     return true
   })
 })
 
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
-})
-
-app.on('window-all-closed', (e) => {
-  e.preventDefault()
-})
+app.on('will-quit', () => globalShortcut.unregisterAll())
+app.on('window-all-closed', (e) => e.preventDefault())

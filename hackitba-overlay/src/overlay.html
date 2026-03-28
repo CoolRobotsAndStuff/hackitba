@@ -10,21 +10,51 @@
   <div id="sidebar">
     <div id="header">
       <div id="header-left">
-        <div id="haleph-logo">
-          <canvas id="logo-canvas" width="64" height="64"></canvas>
-        </div>
+        <div id="haleph-logo"><canvas id="logo-canvas" width="64" height="64"></canvas></div>
         <h1>HALeph</h1>
       </div>
       <div id="header-buttons">
         <button class="icon-btn" id="btn-settings" title="Configuración">⚙</button>
-        <button class="icon-btn" id="btn-close" title="Cerrar (Ctrl+Shift+Space)">✕</button>
+        <button class="icon-btn" id="btn-close" title="Cerrar (Ctrl+Shift+H)">✕</button>
       </div>
     </div>
 
-    <div id="feed">
-      <div class="feed-item info">
-        <span class="feed-icon">✦</span>
-        <span class="feed-text">Contame qué pasó. Ejemplo: <strong>"Juan se atrasó 2 días en T-14, el deadline es el viernes"</strong></span>
+    <div id="tab-bar">
+      <button class="tab-btn active" data-tab="chat">Chat</button>
+      <button class="tab-btn" data-tab="graph">Grafo</button>
+      <button class="tab-btn" data-tab="history">Historial</button>
+      <button class="tab-btn" data-tab="team">Equipo</button>
+    </div>
+
+    <div class="tab-panel active" id="panel-chat" data-tab="chat">
+      <div id="feed">
+        <div class="feed-msg neutral">Contame qué pasó. Ejemplo: "Juan se atrasó 2 días en T-14, el deadline es el viernes"</div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-graph" data-tab="graph">
+      <div id="graph-panel">
+        <canvas id="graph-canvas"></canvas>
+        <div class="graph-legend">
+          <div class="graph-legend-item"><div class="graph-legend-dot" style="background:var(--status-done)"></div>Completada</div>
+          <div class="graph-legend-item"><div class="graph-legend-dot" style="background:var(--status-progress)"></div>En progreso</div>
+          <div class="graph-legend-item"><div class="graph-legend-dot" style="background:var(--status-blocked)"></div>Bloqueada</div>
+          <div class="graph-legend-item"><div class="graph-legend-dot" style="background:var(--status-todo)"></div>Pendiente</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-history" data-tab="history">
+      <div id="history-panel">
+        <button class="history-clear-btn" id="btn-clear-history">Limpiar historial</button>
+        <div id="history-list"></div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-team" data-tab="team">
+      <div id="team-panel">
+        <button class="team-refresh-btn" id="btn-refresh-team">Actualizar estado</button>
+        <div id="team-list"></div>
       </div>
     </div>
 
@@ -32,333 +62,541 @@
       <div id="confirm-bar">
         <p id="confirm-text">¿Ejecutar estos cambios?</p>
         <div id="confirm-buttons">
-          <button class="confirm-btn" id="btn-approve">✓ Ejecutar plan</button>
-          <button class="confirm-btn" id="btn-reject">✕ Cancelar</button>
+          <button class="confirm-btn" id="btn-approve">Ejecutar plan</button>
+          <button class="confirm-btn" id="btn-reject">Cancelar</button>
         </div>
       </div>
-      <textarea
-        id="prompt-input"
-        rows="2"
-        placeholder="Describí el problema..."
-      ></textarea>
+      <textarea id="prompt-input" rows="2" placeholder="Describí el problema..."></textarea>
       <button id="send-btn">Enviar</button>
+    </div>
+
+    <div id="settings-layer">
+      <div id="settings-header">
+        <h2>Configuración</h2>
+        <button class="icon-btn" id="btn-close-settings">✕</button>
+      </div>
+      <div id="settings-body">
+        <div class="cfg-section">
+          <div class="cfg-label-sm">Backend</div>
+          <label class="cfg-field-label">URL del backend</label>
+          <input class="cfg-input" id="cfg-backend-url" type="text" placeholder="https://tu-backend.railway.app" />
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-label-sm">Jira</div>
+          <label class="cfg-field-label">Dominio de Jira</label>
+          <input class="cfg-input" id="cfg-jira-domain" type="text" placeholder="hackitba-demo.atlassian.net" />
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-label-sm">Equipo</div>
+          <div id="cfg-members-list"></div>
+          <button class="cfg-add-btn" id="cfg-add-member">+ Agregar miembro</button>
+        </div>
+        <button class="cfg-save-btn" id="cfg-save-btn">Guardar</button>
+        <div class="cfg-save-msg" id="cfg-save-msg"></div>
+      </div>
     </div>
   </div>
 
-  <script>
-    // ── HALeph Animated Logo ──
-    // Fusion of HAL 9000's red camera eye + Borges' Aleph white singularity
-    const logoCanvas = document.getElementById('logo-canvas')
-    const ctx = logoCanvas.getContext('2d')
-    const W = 64, H = 64, CX = W / 2, CY = H / 2
+<script>
+// ═══ Logo ═══
+const logoCanvas = document.getElementById('logo-canvas')
+const lctx = logoCanvas.getContext('2d')
+const LW=64,LH=64,LCX=LW/2,LCY=LH/2
+let logoState='idle',ltime=0,lparticles=[]
+for(let i=0;i<12;i++) lparticles.push({angle:(Math.PI*2*i)/12,radius:10+Math.random()*8,speed:0.008+Math.random()*0.012,size:0.4+Math.random()*0.6,brightness:0.3+Math.random()*0.7})
 
-    let logoState = 'idle' // 'idle' | 'typing' | 'thinking'
-    let time = 0
-    let particles = []
+function getIntensity(){return logoState==='thinking'?1:logoState==='typing'?0.35:0.12}
+function drawLogo(){
+  ltime+=0.016;const I=getIntensity();lctx.clearRect(0,0,LW,LH)
+  const rp=1+Math.sin(ltime*1.5)*0.02*(1+I*3)
+  lctx.beginPath();lctx.arc(LCX,LCY,22*rp,0,Math.PI*2);lctx.strokeStyle=`rgba(140,105,60,${0.3+I*0.25})`;lctx.lineWidth=1.5;lctx.stroke()
+  lctx.beginPath();lctx.arc(LCX,LCY,18*rp,0,Math.PI*2);lctx.strokeStyle=`rgba(152,120,80,${0.2+I*0.3})`;lctx.lineWidth=1;lctx.stroke()
+  const lg=lctx.createRadialGradient(LCX,LCY,0,LCX,LCY,16);lg.addColorStop(0,`rgba(30,20,10,${0.7+I*0.2})`);lg.addColorStop(0.6,'rgba(15,10,5,0.85)');lg.addColorStop(1,'rgba(10,7,3,0.9)')
+  lctx.beginPath();lctx.arc(LCX,LCY,16,0,Math.PI*2);lctx.fillStyle=lg;lctx.fill()
+  const ps=logoState==='thinking'?4:logoState==='typing'?1.5:1
+  lparticles.forEach(p=>{p.angle+=p.speed*ps;const w=Math.sin(ltime*2+p.angle*3)*2*I,r=p.radius+w;lctx.beginPath();lctx.arc(LCX+Math.cos(p.angle)*r,LCY+Math.sin(p.angle)*r,p.size*(1+I*0.8),0,Math.PI*2);lctx.fillStyle=`rgba(212,192,160,${p.brightness*(0.15+I*0.6)})`;lctx.fill()})
+  const wm=I,cR=200+55*wm,cG=60+180*wm*0.7,cB=30+170*wm*0.5
+  const gs=10+Math.sin(ltime*2)*2*(1+I*2);const og=lctx.createRadialGradient(LCX,LCY,0,LCX,LCY,gs);og.addColorStop(0,`rgba(${cR},${cG},${cB},${0.3+I*0.3})`);og.addColorStop(0.5,`rgba(${cR*0.7},${cG*0.5},${cB*0.3},${0.1+I*0.15})`);og.addColorStop(1,'rgba(0,0,0,0)')
+  lctx.beginPath();lctx.arc(LCX,LCY,gs,0,Math.PI*2);lctx.fillStyle=og;lctx.fill()
+  const cp=2.5+Math.sin(ltime*3)*0.8*(1+I*2);const cg=lctx.createRadialGradient(LCX,LCY,0,LCX,LCY,cp);cg.addColorStop(0,`rgba(${Math.min(255,cR+30)},${Math.min(255,cG+40)},${Math.min(255,cB+20)},1)`);cg.addColorStop(0.5,`rgba(${cR},${cG},${cB},0.8)`);cg.addColorStop(1,`rgba(${cR*0.5},${cG*0.3},${cB*0.2},0)`)
+  lctx.beginPath();lctx.arc(LCX,LCY,cp,0,Math.PI*2);lctx.fillStyle=cg;lctx.fill()
+  const ds=1+Math.sin(ltime*4)*0.3*(1+I);lctx.beginPath();lctx.arc(LCX,LCY,ds,0,Math.PI*2);lctx.fillStyle=`rgba(255,255,240,${0.6+I*0.4})`;lctx.fill()
+  if(I>0.3){const sa=(I-0.3)*0.4;for(let i=0;i<4;i++){const a=(Math.PI/2)*i+ltime*0.5,len=14+Math.sin(ltime*3+i)*4;lctx.beginPath();lctx.moveTo(LCX+Math.cos(a)*4,LCY+Math.sin(a)*4);lctx.lineTo(LCX+Math.cos(a)*len,LCY+Math.sin(a)*len);lctx.strokeStyle=`rgba(212,192,160,${sa})`;lctx.lineWidth=0.5;lctx.stroke()}}
+  requestAnimationFrame(drawLogo)
+}
+drawLogo()
 
-    // Initialize orbital particles
-    for (let i = 0; i < 12; i++) {
-      particles.push({
-        angle: (Math.PI * 2 * i) / 12,
-        radius: 10 + Math.random() * 8,
-        speed: 0.008 + Math.random() * 0.012,
-        size: 0.4 + Math.random() * 0.6,
-        brightness: 0.3 + Math.random() * 0.7
-      })
-    }
+// ═══ Tabs ═══
+const tabBtns=document.querySelectorAll('.tab-btn'),tabPanels=document.querySelectorAll('.tab-panel'),inputArea=document.getElementById('input-area')
+function switchTab(t){
+  tabBtns.forEach(b=>b.classList.toggle('active',b.dataset.tab===t))
+  tabPanels.forEach(p=>p.classList.toggle('active',p.dataset.tab===t))
+  inputArea.style.display=t==='chat'?'':'none'
+  if(t==='graph') renderGraph()
+  if(t==='history') loadHistory()
+  if(t==='team') loadTeamStatus()
+}
 
-    function getIntensity() {
-      if (logoState === 'thinking') return 1.0
-      if (logoState === 'typing') return 0.35
-      return 0.12
-    }
 
-    function drawLogo() {
-      time += 0.016
-      const intensity = getIntensity()
-      ctx.clearRect(0, 0, W, H)
+// ═══ Chat ═══
+const sidebar=document.getElementById('sidebar'),feed=document.getElementById('feed')
+const input=document.getElementById('prompt-input'),sendBtn=document.getElementById('send-btn')
+const confirmBar=document.getElementById('confirm-bar'),confirmText=document.getElementById('confirm-text')
+let currentPlan=null,backendUrl='',graphData=null
 
-      // Outer lens ring (HAL's camera housing)
-      const ringPulse = 1 + Math.sin(time * 1.5) * 0.02 * (1 + intensity * 3)
-      ctx.beginPath()
-      ctx.arc(CX, CY, 22 * ringPulse, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(140, 105, 60, ${0.3 + intensity * 0.25})`
-      ctx.lineWidth = 1.5
-      ctx.stroke()
+input.addEventListener('input',()=>{logoState=input.value.trim().length>0?'typing':'idle'})
 
-      // Second ring
-      ctx.beginPath()
-      ctx.arc(CX, CY, 18 * ringPulse, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(184, 115, 51, ${0.2 + intensity * 0.3})`
-      ctx.lineWidth = 1
-      ctx.stroke()
+async function loadSettings(){const s=await window.electron.getSettings();backendUrl=s.backendUrl||'http://localhost:8000'}
 
-      // Inner dark fill (HAL's lens)
-      const lensGrad = ctx.createRadialGradient(CX, CY, 0, CX, CY, 16)
-      lensGrad.addColorStop(0, `rgba(30, 20, 10, ${0.7 + intensity * 0.2})`)
-      lensGrad.addColorStop(0.6, `rgba(15, 10, 5, ${0.85})`)
-      lensGrad.addColorStop(1, `rgba(10, 7, 3, 0.9)`)
-      ctx.beginPath()
-      ctx.arc(CX, CY, 16, 0, Math.PI * 2)
-      ctx.fillStyle = lensGrad
-      ctx.fill()
+function addMsg(text,cls='neutral'){
+  const el=document.createElement('div')
+  el.className=`feed-msg ${cls}`
+  el.textContent=text
+  feed.appendChild(el)
+  feed.scrollTop=feed.scrollHeight
+  return el
+}
 
-      // Orbital particles (Aleph's cosmic debris)
-      const particleSpeedMult = logoState === 'thinking' ? 4 : logoState === 'typing' ? 1.5 : 1
-      particles.forEach(p => {
-        p.angle += p.speed * particleSpeedMult
-        const wobble = Math.sin(time * 2 + p.angle * 3) * 2 * intensity
-        const r = p.radius + wobble
-        const px = CX + Math.cos(p.angle) * r
-        const py = CY + Math.sin(p.angle) * r
-        const alpha = p.brightness * (0.15 + intensity * 0.6)
-        const sz = p.size * (1 + intensity * 0.8)
+function addMsgHtml(html,cls='neutral'){
+  const el=document.createElement('div')
+  el.className=`feed-msg ${cls}`
+  el.innerHTML=html
+  feed.appendChild(el)
+  feed.scrollTop=feed.scrollHeight
+  return el
+}
 
-        ctx.beginPath()
-        ctx.arc(px, py, sz, 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(232, 184, 122, ${alpha})`
-        ctx.fill()
-      })
+function addActionGroup(lines){
+  const g=document.createElement('div');g.className='action-group'
+  lines.forEach(l=>{const ln=document.createElement('div');ln.className=`action-line ${l.cls||''}`;ln.textContent=l.text;g.appendChild(ln)})
+  feed.appendChild(g);feed.scrollTop=feed.scrollHeight;return g
+}
 
-      // Core glow layers — red (HAL) merging with white (Aleph)
-      // The thinking state pulls toward brighter white; idle is more red
-      const whiteMix = intensity
-      const coreR = 220 + (255 - 220) * whiteMix
-      const coreG = 60 + (255 - 60) * whiteMix * 0.8
-      const coreB = 30 + (240 - 30) * whiteMix * 0.6
+function addThinking(){
+  logoState='thinking'
+  return addMsgHtml('Analizando dependencias<div class="dot-pulse"><span></span><span></span><span></span></div>','ai')
+}
 
-      // Outer glow
-      const glowSize = 10 + Math.sin(time * 2) * 2 * (1 + intensity * 2)
-      const outerGlow = ctx.createRadialGradient(CX, CY, 0, CX, CY, glowSize)
-      outerGlow.addColorStop(0, `rgba(${coreR}, ${coreG}, ${coreB}, ${0.3 + intensity * 0.3})`)
-      outerGlow.addColorStop(0.5, `rgba(${coreR * 0.7}, ${coreG * 0.5}, ${coreB * 0.3}, ${0.1 + intensity * 0.15})`)
-      outerGlow.addColorStop(1, 'rgba(0, 0, 0, 0)')
-      ctx.beginPath()
-      ctx.arc(CX, CY, glowSize, 0, Math.PI * 2)
-      ctx.fillStyle = outerGlow
-      ctx.fill()
+async function sendPromptToBackend(){
+  const text=input.value.trim();if(!text)return
+  input.value='';sendBtn.disabled=true
+  confirmBar.classList.remove('visible');currentPlan=null
 
-      // Inner core point — the singularity
-      const corePulse = 2.5 + Math.sin(time * 3) * 0.8 * (1 + intensity * 2)
-      const coreGrad = ctx.createRadialGradient(CX, CY, 0, CX, CY, corePulse)
-      coreGrad.addColorStop(0, `rgba(${Math.min(255, coreR + 30)}, ${Math.min(255, coreG + 40)}, ${Math.min(255, coreB + 20)}, 1)`)
-      coreGrad.addColorStop(0.5, `rgba(${coreR}, ${coreG}, ${coreB}, 0.8)`)
-      coreGrad.addColorStop(1, `rgba(${coreR * 0.5}, ${coreG * 0.3}, ${coreB * 0.2}, 0)`)
-      ctx.beginPath()
-      ctx.arc(CX, CY, corePulse, 0, Math.PI * 2)
-      ctx.fillStyle = coreGrad
-      ctx.fill()
+  addMsg(text,'user')
+  const thinkingItem=addThinking()
 
-      // Bright white center dot (Aleph singularity)
-      const dotSize = 1 + Math.sin(time * 4) * 0.3 * (1 + intensity)
-      ctx.beginPath()
-      ctx.arc(CX, CY, dotSize, 0, Math.PI * 2)
-      ctx.fillStyle = `rgba(255, 255, 250, ${0.6 + intensity * 0.4})`
-      ctx.fill()
+  try{
+    const response=await fetch(`${backendUrl}/report-delay`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
+    thinkingItem.remove();logoState='idle'
+    if(!response.ok) throw new Error(`Error ${response.status}`)
+    const data=await response.json();currentPlan=data
+    if(data.dependency_graph) graphData=data.dependency_graph
 
-      // Geometric light streaks when thinking (Interstellar tesseract lines)
-      if (intensity > 0.3) {
-        const streakAlpha = (intensity - 0.3) * 0.4
-        for (let i = 0; i < 4; i++) {
-          const a = (Math.PI / 2) * i + time * 0.5
-          const len = 14 + Math.sin(time * 3 + i) * 4
-          ctx.beginPath()
-          ctx.moveTo(CX + Math.cos(a) * 4, CY + Math.sin(a) * 4)
-          ctx.lineTo(CX + Math.cos(a) * len, CY + Math.sin(a) * len)
-          ctx.strokeStyle = `rgba(232, 184, 122, ${streakAlpha})`
-          ctx.lineWidth = 0.5
-          ctx.stroke()
+    addMsg(data.summary,'ai')
+
+    if(data.actions&&data.actions.length>0){
+      const actionLines=data.actions.map(action=>{
+        const labels={
+          update_calendar_event:`Mover evento ${action.target_id} al ${action.params?.new_start?.split('T')[0]||'?'}`,
+          update_jira_issue:`Reasignar ${action.target_id} → ${action.params?.new_assignee||'?'}`,
+          notify_slack:'Notificar al equipo'
         }
+        return{text:labels[action.type]||JSON.stringify(action)}
+      })
+      addActionGroup(actionLines)
+    }
+    confirmText.textContent=`¿Ejecutar ${data.actions?.length||0} cambios?`
+    confirmBar.classList.add('visible')
+  }catch(err){
+    thinkingItem?.remove();logoState='idle'
+    addMsg(`Error al conectar con el backend: ${err.message}`,'error')
+  }
+  sendBtn.disabled=false
+}
+
+async function executePlan(){
+  if(!currentPlan)return
+  confirmBar.classList.remove('visible');logoState='thinking'
+  addActionGroup([{text:'Ejecutando cambios...'}])
+  try{
+    const response=await fetch(`${backendUrl}/execute-plan`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actions:currentPlan.actions})})
+    if(!response.ok) throw new Error(`Error ${response.status}`)
+    const result=await response.json()
+    const resultLines=(result.results||[]).map(r=>({text:r.message||(r.success?'Cambio ejecutado':'Error al ejecutar'),cls:r.success?'done':'error'}))
+    addActionGroup(resultLines)
+    addMsg('Todos los cambios aplicados.','done-msg')
+    await window.electron.addHistoryEntry({prompt:currentPlan.prompt||'',summary:currentPlan.summary||'',actions:currentPlan.actions||[],results:result.results||[],sources:(currentPlan.actions||[]).map(a=>a.type).filter((v,i,s)=>s.indexOf(v)===i)})
+  }catch(err){addMsg(`Error al ejecutar: ${err.message}`,'error')}
+  logoState='idle';currentPlan=null
+}
+
+document.getElementById('btn-close').addEventListener('click',()=>window.electron.hideOverlay())
+sendBtn.addEventListener('click',sendPromptToBackend)
+input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPromptToBackend()}})
+document.getElementById('btn-approve').addEventListener('click',executePlan)
+document.getElementById('btn-reject').addEventListener('click',()=>{confirmBar.classList.remove('visible');currentPlan=null;addMsg('Plan cancelado.','neutral')})
+window.electron.onOverlayOpened(()=>{setTimeout(()=>sidebar.classList.add('visible'),10);input.focus();loadSettings();startPolling()})
+loadSettings()
+
+// ═══ Settings ═══
+const settingsLayer=document.getElementById('settings-layer'),cfgMembersList=document.getElementById('cfg-members-list')
+document.getElementById('btn-settings').addEventListener('click',async()=>{
+  settingsLayer.classList.add('open')
+  const s=await window.electron.getSettings()
+  document.getElementById('cfg-backend-url').value=s.backendUrl||''
+  document.getElementById('cfg-jira-domain').value=s.jiraDomain||''
+  cfgMembersList.innerHTML=''
+  const m=s.teamMembers||[];if(m.length===0)addCfgMemberRow();else m.forEach(x=>addCfgMemberRow(x.name,x.accountId))
+})
+document.getElementById('btn-close-settings').addEventListener('click',()=>settingsLayer.classList.remove('open'))
+function addCfgMemberRow(name='',accountId=''){
+  const row=document.createElement('div');row.className='member-row'
+  row.innerHTML=`<input class="cfg-input" type="text" placeholder="Pedro" value="${name}" data-field="name" /><input class="cfg-input" type="text" placeholder="712020:abc..." value="${accountId}" data-field="id" /><button class="cfg-remove-btn">✕</button>`
+  row.querySelector('.cfg-remove-btn').addEventListener('click',()=>row.remove())
+  cfgMembersList.appendChild(row)
+}
+document.getElementById('cfg-add-member').addEventListener('click',()=>addCfgMemberRow())
+document.getElementById('cfg-save-btn').addEventListener('click',async()=>{
+  const members=[...cfgMembersList.querySelectorAll('.member-row')].map(r=>({name:r.querySelector('[data-field="name"]').value.trim(),accountId:r.querySelector('[data-field="id"]').value.trim()})).filter(m=>m.name&&m.accountId)
+  await window.electron.saveSettings({backendUrl:document.getElementById('cfg-backend-url').value.trim(),jiraDomain:document.getElementById('cfg-jira-domain').value.trim(),teamMembers:members})
+  const msg=document.getElementById('cfg-save-msg');msg.textContent='Configuración guardada';setTimeout(()=>msg.textContent='',2500)
+})
+
+// ═══ Dependency Graph — force-directed physics (Obsidian-style) ═══
+const graphCanvas=document.getElementById('graph-canvas')
+const gctx=graphCanvas.getContext('2d')
+
+const demoGraphData={
+  nodes:[
+    {id:'T-10',label:'Setup DB',status:'done',x:0.15,y:0.18},
+    {id:'T-11',label:'Auth API',status:'done',x:0.5,y:0.12},
+    {id:'T-12',label:'User CRUD',status:'progress',x:0.85,y:0.18},
+    {id:'T-13',label:'Frontend auth',status:'progress',x:0.28,y:0.5},
+    {id:'T-14',label:'Dashboard',status:'blocked',x:0.65,y:0.48},
+    {id:'T-15',label:'Notificaciones',status:'todo',x:0.42,y:0.82},
+    {id:'T-16',label:'Deploy',status:'todo',x:0.78,y:0.82}
+  ],
+  edges:[
+    {from:'T-10',to:'T-11'},{from:'T-11',to:'T-12'},{from:'T-11',to:'T-13'},
+    {from:'T-12',to:'T-14'},{from:'T-13',to:'T-14'},
+    {from:'T-14',to:'T-15'},{from:'T-14',to:'T-16'}
+  ]
+}
+
+// Graph state
+let graphNodes = null
+let graphEdges = null
+let graphW = 0, graphH = 0
+let dragNode = null, dragOffX = 0, dragOffY = 0
+let graphAnimFrame = null
+const NODE_R = 8
+
+// Physics constants — tuned for Obsidian-like feel
+const SPRING_K = 0.035        // spring stiffness along edges
+const SPRING_LEN = 90         // rest length of springs
+const REPULSION = 2200        // repulsion between all node pairs
+const DAMPING = 0.78          // velocity decay per frame (lower = bouncier)
+const CENTER_G = 0.0015       // gentle pull toward canvas center
+
+const statusColors = {
+  done: '#D4C0A0',
+  progress: '#9A7B5A',
+  blocked: '#6B4035',
+  todo: 'rgba(180,160,140,0.3)'
+}
+
+function initGraphNodes(data) {
+  const rect = graphCanvas.parentElement.getBoundingClientRect()
+  graphW = rect.width - 20
+  graphH = rect.height - 60
+  graphCanvas.width = graphW * 2
+  graphCanvas.height = graphH * 2
+  graphCanvas.style.width = graphW + 'px'
+  graphCanvas.style.height = graphH + 'px'
+
+  const pad = 35
+  graphNodes = data.nodes.map(n => ({
+    id: n.id, label: n.label, status: n.status,
+    px: pad + n.x * (graphW - pad * 2),
+    py: pad + n.y * (graphH - pad * 2),
+    vx: 0, vy: 0, fx: 0, fy: 0
+  }))
+  graphEdges = data.edges
+}
+
+function physicsTick() {
+  if (!graphNodes || !graphEdges) return
+  const nodeMap = {}
+  graphNodes.forEach(n => { nodeMap[n.id] = n; n.fx = 0; n.fy = 0 })
+
+  // Spring forces along edges (attract connected nodes toward rest length)
+  graphEdges.forEach(e => {
+    const a = nodeMap[e.from], b = nodeMap[e.to]
+    if (!a || !b) return
+    const dx = b.px - a.px, dy = b.py - a.py
+    const d = Math.sqrt(dx*dx + dy*dy) || 1
+    const stretch = d - SPRING_LEN
+    const fx = SPRING_K * stretch * (dx/d)
+    const fy = SPRING_K * stretch * (dy/d)
+    a.fx += fx; a.fy += fy
+    b.fx -= fx; b.fy -= fy
+  })
+
+  // Repulsion between every pair of nodes (push apart)
+  for (let i = 0; i < graphNodes.length; i++) {
+    for (let j = i + 1; j < graphNodes.length; j++) {
+      const a = graphNodes[i], b = graphNodes[j]
+      const dx = b.px - a.px, dy = b.py - a.py
+      const d2 = Math.max(dx*dx + dy*dy, 1)
+      const d = Math.sqrt(d2)
+      const f = REPULSION / d2
+      const fx = f * (dx/d), fy = f * (dy/d)
+      a.fx -= fx; a.fy -= fy
+      b.fx += fx; b.fy += fy
+    }
+  }
+
+  // Gentle gravity toward center (prevents drift)
+  const cx = graphW / 2, cy = graphH / 2
+  graphNodes.forEach(n => {
+    n.fx += (cx - n.px) * CENTER_G
+    n.fy += (cy - n.py) * CENTER_G
+  })
+
+  // Integrate velocities and positions
+  graphNodes.forEach(n => {
+    if (n === dragNode) { n.vx = 0; n.vy = 0; return } // pinned while dragging
+    n.vx = (n.vx + n.fx) * DAMPING
+    n.vy = (n.vy + n.fy) * DAMPING
+    n.px = Math.max(NODE_R + 2, Math.min(graphW - NODE_R - 2, n.px + n.vx))
+    n.py = Math.max(NODE_R + 2, Math.min(graphH - NODE_R - 2, n.py + n.vy))
+  })
+}
+
+function drawGraph() {
+  if (!graphNodes) return
+  gctx.setTransform(2, 0, 0, 2, 0, 0)
+  gctx.clearRect(0, 0, graphW, graphH)
+
+  const nodeMap = {}
+  graphNodes.forEach(n => nodeMap[n.id] = n)
+
+  // Edges
+  graphEdges.forEach(e => {
+    const f = nodeMap[e.from], t = nodeMap[e.to]
+    if (!f || !t) return
+    const dx = t.px - f.px, dy = t.py - f.py
+    const d = Math.sqrt(dx*dx + dy*dy)
+    if (d < 1) return
+    const ux = dx/d, uy = dy/d
+    const x1 = f.px + ux * NODE_R, y1 = f.py + uy * NODE_R
+    const x2 = t.px - ux * NODE_R, y2 = t.py - uy * NODE_R
+
+    // Edge tension color — stretched edges glow slightly amber
+    const tension = Math.min(1, Math.abs(d - SPRING_LEN) / SPRING_LEN)
+    const edgeAlpha = 0.15 + tension * 0.3
+    gctx.beginPath()
+    gctx.moveTo(x1, y1); gctx.lineTo(x2, y2)
+    gctx.strokeStyle = `rgba(184,149,106,${edgeAlpha})`
+    gctx.lineWidth = 1 + tension * 0.8; gctx.stroke()
+
+    // Arrowhead
+    const a = Math.atan2(y2-y1, x2-x1), al = 7, aa = 0.45
+    gctx.beginPath()
+    gctx.moveTo(x2, y2)
+    gctx.lineTo(x2 - al*Math.cos(a-aa), y2 - al*Math.sin(a-aa))
+    gctx.moveTo(x2, y2)
+    gctx.lineTo(x2 - al*Math.cos(a+aa), y2 - al*Math.sin(a+aa))
+    gctx.strokeStyle = `rgba(152,120,80,${0.25 + tension * 0.3})`
+    gctx.lineWidth = 1.5; gctx.stroke()
+  })
+
+  // Nodes
+  graphNodes.forEach(n => {
+    const color = statusColors[n.status] || statusColors.todo
+    const speed = Math.sqrt(n.vx*n.vx + n.vy*n.vy)
+    const isMoving = speed > 0.3
+
+    // Glow — amplified when node is in motion
+    const glowR = 18 + (isMoving ? speed * 4 : 0)
+    const glow = gctx.createRadialGradient(n.px, n.py, 0, n.px, n.py, glowR)
+    const baseColor = color.startsWith('#') ? color : '#B4A08C'
+    glow.addColorStop(0, baseColor + (isMoving ? '55' : '22'))
+    glow.addColorStop(1, 'rgba(0,0,0,0)')
+    gctx.beginPath(); gctx.arc(n.px, n.py, glowR, 0, Math.PI*2)
+    gctx.fillStyle = glow; gctx.fill()
+
+    // Node circle
+    gctx.beginPath(); gctx.arc(n.px, n.py, NODE_R, 0, Math.PI*2)
+    gctx.fillStyle = color; gctx.fill()
+    gctx.strokeStyle = 'rgba(0,0,0,0.3)'; gctx.lineWidth = 1; gctx.stroke()
+
+    // Drag ring
+    if (dragNode === n) {
+      gctx.beginPath(); gctx.arc(n.px, n.py, NODE_R + 4, 0, Math.PI*2)
+      gctx.strokeStyle = 'rgba(232,213,186,0.5)'; gctx.lineWidth = 1.5; gctx.stroke()
+    }
+
+    // Labels
+    gctx.font = '9px monospace'; gctx.fillStyle = 'rgba(232,213,186,0.85)'; gctx.textAlign = 'center'
+    gctx.fillText(n.id, n.px, n.py + 18)
+    gctx.font = '8px monospace'; gctx.fillStyle = 'rgba(232,213,186,0.4)'
+    gctx.fillText(n.label, n.px, n.py + 27)
+  })
+
+  gctx.setTransform(1, 0, 0, 1, 0, 0)
+}
+
+function graphLoop() {
+  physicsTick()
+  drawGraph()
+  graphAnimFrame = requestAnimationFrame(graphLoop)
+}
+
+function startGraphLoop() {
+  if (graphAnimFrame) return
+  graphLoop()
+}
+
+function stopGraphLoop() {
+  if (graphAnimFrame) { cancelAnimationFrame(graphAnimFrame); graphAnimFrame = null }
+}
+
+function renderGraph() {
+  const data = graphData || demoGraphData
+  initGraphNodes(data)
+  startGraphLoop()
+}
+
+// Drag interaction
+function canvasCoords(e) {
+  const rect = graphCanvas.getBoundingClientRect()
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+}
+
+function findNodeAt(x, y) {
+  const hitR = NODE_R + 8
+  for (let i = graphNodes.length - 1; i >= 0; i--) {
+    const n = graphNodes[i]
+    const dx = x - n.px, dy = y - n.py
+    if (dx*dx + dy*dy <= hitR*hitR) return n
+  }
+  return null
+}
+
+graphCanvas.addEventListener('mousedown', e => {
+  if (!graphNodes) return
+  const {x, y} = canvasCoords(e)
+  const node = findNodeAt(x, y)
+  if (node) {
+    dragNode = node
+    dragOffX = x - node.px
+    dragOffY = y - node.py
+    graphCanvas.classList.add('dragging')
+    e.preventDefault()
+  }
+})
+
+window.addEventListener('mousemove', e => {
+  if (!dragNode) return
+  const {x, y} = canvasCoords(e)
+  dragNode.px = Math.max(NODE_R, Math.min(graphW - NODE_R, x - dragOffX))
+  dragNode.py = Math.max(NODE_R, Math.min(graphH - NODE_R, y - dragOffY))
+})
+
+window.addEventListener('mouseup', () => {
+  if (dragNode) {
+    // Give the released node a small kick based on last drag motion — feels organic
+    dragNode.vx *= 0.3; dragNode.vy *= 0.3
+    dragNode = null
+    graphCanvas.classList.remove('dragging')
+  }
+})
+
+// Stop physics loop when leaving graph tab to save CPU
+const origSwitchTab = switchTab
+// (patch applied below after tab listener setup)
+
+// Patch switchTab to start/stop the physics loop and save CPU
+const _origSwitchTab = switchTab
+function switchTab(t) {
+  _origSwitchTab(t)
+  if (t === 'graph') startGraphLoop()
+  else stopGraphLoop()
+}
+tabBtns.forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)))
+
+// ═══ Polling bidireccional — eventos entrantes de Jira/Calendar ═══
+let pollingInterval = null
+
+async function pollPendingEvents() {
+  if (!backendUrl) return
+  try {
+    const r = await fetch(`${backendUrl}/pending-events`)
+    if (!r.ok) return
+    const data = await r.json()
+    const events = data.events || []
+    events.forEach(ev => {
+      const sourceLabel = { jira: '⬡ Jira', google_calendar: '◈ Calendar', slack: '◎ Slack' }[ev.source] || ev.source
+      const msg = ev.message || `${sourceLabel}: ${JSON.stringify(ev.data)}`
+      addMsgHtml(`<span style="color:var(--warm-white-dim);font-size:10px">${sourceLabel}</span><br>${msg}`, 'neutral')
+    })
+  } catch (_) { /* falla silenciosamente */ }
+}
+
+function startPolling() {
+  if (pollingInterval) return
+  pollingInterval = setInterval(pollPendingEvents, 15000)
+}
+
+function stopPolling() {
+  if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null }
+}
+
+// ═══ History ═══
+const historyList=document.getElementById('history-list')
+async function loadHistory(){
+  const history=await window.electron.getHistory();historyList.innerHTML=''
+  if(history.length===0){historyList.innerHTML='<div class="history-empty">No hay acciones registradas</div>';return}
+  history.forEach(entry=>{
+    const el=document.createElement('div');el.className='history-entry'
+    const date=new Date(entry.timestamp)
+    const ts=date.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+    const sourceLabels={update_calendar_event:'Calendar',update_jira_issue:'Jira',notify_slack:'Slack',update_github:'GitHub',send_email:'Email'}
+    const sources=(entry.sources||[]).map(s=>sourceLabels[s]||s).join(' · ')
+    let ah='';if(entry.actions&&entry.actions.length>0){
+      ah='<div class="history-actions-bar">'+entry.actions.map(a=>{const l={update_calendar_event:`Mover evento ${a.target_id||''}`,update_jira_issue:`Reasignar ${a.target_id||''}`,notify_slack:'Notificar equipo'};return`<span>${l[a.type]||a.type}</span>`}).join('')+'</div>'
+    }
+    el.innerHTML=`<div class="h-time">${ts}</div><div class="h-prompt">${entry.summary||entry.prompt||''}</div>${sources?`<div class="h-source">${sources}</div>`:''}${ah}`
+    historyList.appendChild(el)
+  })
+}
+document.getElementById('btn-clear-history').addEventListener('click',async()=>{await window.electron.clearHistory();loadHistory()})
+
+// ═══ Team ═══
+const teamList=document.getElementById('team-list')
+async function loadTeamStatus(){
+  teamList.innerHTML='<div class="team-empty">Cargando...</div>'
+  try{
+    const r=await fetch(`${backendUrl}/team-status`);if(!r.ok)throw new Error(`${r.status}`)
+    const data=await r.json();teamList.innerHTML=''
+    const members=data.members||data||[];if(members.length===0){teamList.innerHTML='<div class="team-empty">No hay datos de equipo</div>';return}
+    members.forEach(m=>{
+      const card=document.createElement('div');card.className='team-card'
+      let th='';if(m.tasks&&m.tasks.length>0){
+        th='<div class="team-card-tasks">'+m.tasks.map(t=>{
+          const sm={done:'done',completed:'done',closed:'done','in progress':'progress',in_progress:'progress',active:'progress',blocked:'blocked',failed:'blocked',todo:'todo',pending:'todo',open:'todo',backlog:'todo'}
+          const cls=sm[t.status?.toLowerCase()]||'todo'
+          const src=t.source?` <span style="font-size:9px;color:var(--warm-white-dim);opacity:0.6">[${t.source}]</span>`:''
+          return`<div class="team-task">${t.id||''} ${t.title||''}${src}<span class="task-status ${cls}">${t.status||'todo'}</span></div>`
+        }).join('')+'</div>'
       }
-
-      requestAnimationFrame(drawLogo)
-    }
-
-    drawLogo()
-
-    // ── App Logic ──
-    const sidebar = document.getElementById('sidebar')
-    const feed = document.getElementById('feed')
-    const input = document.getElementById('prompt-input')
-    const sendBtn = document.getElementById('send-btn')
-    const confirmBar = document.getElementById('confirm-bar')
-    const confirmText = document.getElementById('confirm-text')
-    const btnApprove = document.getElementById('btn-approve')
-    const btnReject = document.getElementById('btn-reject')
-
-    let currentPlan = null
-    let backendUrl = ''
-
-    // Track typing for logo animation
-    input.addEventListener('input', () => {
-      if (input.value.trim().length > 0) {
-        logoState = 'typing'
-      } else {
-        logoState = 'idle'
-      }
+      card.innerHTML=`<div class="team-card-name">${m.name||'Sin nombre'}</div><div class="team-card-role">${m.role||''}</div>${th}`
+      teamList.appendChild(card)
     })
-
-    async function loadSettings() {
-      const settings = await window.electron.getSettings()
-      backendUrl = settings.backendUrl || 'http://localhost:8000'
-    }
-
-    function addFeedItem(text, type = 'info', icon = '✦') {
-      const item = document.createElement('div')
-      item.className = `feed-item ${type}`
-      item.innerHTML = `
-        <span class="feed-icon">${icon}</span>
-        <span class="feed-text">${text}</span>
-      `
-      feed.appendChild(item)
-      feed.scrollTop = feed.scrollHeight
-      return item
-    }
-
-    function addThinking() {
-      logoState = 'thinking'
-      const item = document.createElement('div')
-      item.className = 'feed-item thinking'
-      item.innerHTML = `
-        <span class="feed-icon">◉</span>
-        <span class="feed-text">Analizando dependencias<div class="dot-pulse"><span></span><span></span><span></span></div></span>
-      `
-      feed.appendChild(item)
-      feed.scrollTop = feed.scrollHeight
-      return item
-    }
-
-    async function sendPromptToBackend() {
-      const text = input.value.trim()
-      if (!text) return
-
-      input.value = ''
-      sendBtn.disabled = true
-      confirmBar.classList.remove('visible')
-      currentPlan = null
-
-      addFeedItem(`<strong>Vos:</strong> ${text}`, 'info', '▸')
-
-      const thinkingItem = addThinking()
-
-      try {
-        const response = await fetch(`${backendUrl}/report-delay`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: text })
-        })
-
-        thinkingItem.remove()
-        logoState = 'idle'
-
-        if (!response.ok) throw new Error(`Error ${response.status}`)
-
-        const data = await response.json()
-        currentPlan = data
-
-        addFeedItem(`<strong>Plan propuesto:</strong> ${data.summary}`, 'thinking', '◎')
-
-        if (data.actions && data.actions.length > 0) {
-          data.actions.forEach(action => {
-            const icons = {
-              update_calendar_event: '▪',
-              update_jira_issue: '▪',
-              notify_slack: '▪'
-            }
-            const labels = {
-              update_calendar_event: `Mover evento <strong>${action.target_id}</strong> al ${action.params.new_start?.split('T')[0]}`,
-              update_jira_issue: `Reasignar <strong>${action.target_id}</strong> → ${action.params.new_assignee}`,
-              notify_slack: `Notificar al equipo`
-            }
-            addFeedItem(
-              labels[action.type] || JSON.stringify(action),
-              'info',
-              icons[action.type] || '▪'
-            )
-          })
-        }
-
-        confirmText.textContent = `¿Ejecutar ${data.actions?.length || 0} cambios?`
-        confirmBar.classList.add('visible')
-
-      } catch (err) {
-        thinkingItem?.remove()
-        logoState = 'idle'
-        addFeedItem(`Error al conectar con el backend: <strong>${err.message}</strong>`, 'error', '✕')
-      }
-
-      sendBtn.disabled = false
-    }
-
-    async function executePlan() {
-      if (!currentPlan) return
-
-      confirmBar.classList.remove('visible')
-      logoState = 'thinking'
-      addFeedItem('Ejecutando cambios...', 'thinking', '◉')
-
-      try {
-        const response = await fetch(`${backendUrl}/execute-plan`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ actions: currentPlan.actions })
-        })
-
-        if (!response.ok) throw new Error(`Error ${response.status}`)
-
-        const result = await response.json()
-
-        result.results?.forEach(r => {
-          if (r.success) {
-            addFeedItem(r.message || 'Cambio ejecutado correctamente', 'success', '✓')
-          } else {
-            addFeedItem(r.message || 'Error al ejecutar cambio', 'error', '✕')
-          }
-        })
-
-        addFeedItem('Todos los cambios aplicados.', 'success', '✦')
-
-      } catch (err) {
-        addFeedItem(`Error al ejecutar: <strong>${err.message}</strong>`, 'error', '✕')
-      }
-
-      logoState = 'idle'
-      currentPlan = null
-    }
-
-    // Events
-    document.getElementById('btn-close').addEventListener('click', () => {
-      window.electron.hideOverlay()
-    })
-
-    document.getElementById('btn-settings').addEventListener('click', () => {
-      window.electron.openSettings()
-    })
-
-    sendBtn.addEventListener('click', sendPromptToBackend)
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
-        sendPromptToBackend()
-      }
-    })
-
-    btnApprove.addEventListener('click', executePlan)
-
-    btnReject.addEventListener('click', () => {
-      confirmBar.classList.remove('visible')
-      currentPlan = null
-      addFeedItem('Plan cancelado.', 'info', '✕')
-    })
-
-    window.electron.onOverlayOpened(() => {
-      setTimeout(() => sidebar.classList.add('visible'), 10)
-      input.focus()
-      loadSettings()
-    })
-
-    loadSettings()
-  </script>
+  }catch(err){teamList.innerHTML=`<div class="team-empty">No se pudo conectar: ${err.message}</div>`}
+}
+document.getElementById('btn-refresh-team').addEventListener('click',loadTeamStatus)
+</script>
 </body>
 </html>
