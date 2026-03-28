@@ -1,0 +1,6 @@
+# FRONTEND (Node/NPM)
+node_modules/
+
+package-lock.json
+package.json
+nohup.out

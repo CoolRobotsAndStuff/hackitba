@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HALeph</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div id="sidebar">
+    <div id="header">
+      <div id="header-left">
+        <div id="haleph-logo">
+          <canvas id="logo-canvas" width="64" height="64"></canvas>
+        </div>
+        <h1>HALeph</h1>
+      </div>
+      <div id="header-buttons">
+        <button class="icon-btn" id="btn-settings" title="Configuración">⚙</button>
+        <button class="icon-btn" id="btn-close" title="Cerrar (Ctrl+Shift+Space)">✕</button>
+      </div>
+    </div>
+
+    <div id="feed">
+      <div class="feed-item info">
+        <span class="feed-icon">✦</span>
+        <span class="feed-text">Contame qué pasó. Ejemplo: <strong>"Juan se atrasó 2 días en T-14, el deadline es el viernes"</strong></span>
+      </div>
+    </div>
+
+    <div id="input-area">
+      <div id="confirm-bar">
+        <p id="confirm-text">¿Ejecutar estos cambios?</p>
+        <div id="confirm-buttons">
+          <button class="confirm-btn" id="btn-approve">✓ Ejecutar plan</button>
+          <button class="confirm-btn" id="btn-reject">✕ Cancelar</button>
+        </div>
+      </div>
+      <textarea
+        id="prompt-input"
+        rows="2"
+        placeholder="Describí el problema..."
+      ></textarea>
+      <button id="send-btn">Enviar</button>
+    </div>
+  </div>
+
+  <script>
+    // ── HALeph Animated Logo ──
+    // Fusion of HAL 9000's red camera eye + Borges' Aleph white singularity
+    const logoCanvas = document.getElementById('logo-canvas')
+    const ctx = logoCanvas.getContext('2d')
+    const W = 64, H = 64, CX = W / 2, CY = H / 2
+
+    let logoState = 'idle' // 'idle' | 'typing' | 'thinking'
+    let time = 0
+    let particles = []
+
+    // Initialize orbital particles
+    for (let i = 0; i < 12; i++) {
+      particles.push({
+        angle: (Math.PI * 2 * i) / 12,
+        radius: 10 + Math.random() * 8,
+        speed: 0.008 + Math.random() * 0.012,
+        size: 0.4 + Math.random() * 0.6,
+        brightness: 0.3 + Math.random() * 0.7
+      })
+    }
+
+    function getIntensity() {
+      if (logoState === 'thinking') return 1.0
+      if (logoState === 'typing') return 0.35
+      return 0.12
+    }
+
+    function drawLogo() {
+      time += 0.016
+      const intensity = getIntensity()
+      ctx.clearRect(0, 0, W, H)
+
+      // Outer lens ring (HAL's camera housing)
+      const ringPulse = 1 + Math.sin(time * 1.5) * 0.02 * (1 + intensity * 3)
+      ctx.beginPath()
+      ctx.arc(CX, CY, 22 * ringPulse, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(140, 105, 60, ${0.3 + intensity * 0.25})`
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+
+      // Second ring
+      ctx.beginPath()
+      ctx.arc(CX, CY, 18 * ringPulse, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(184, 115, 51, ${0.2 + intensity * 0.3})`
+      ctx.lineWidth = 1
+      ctx.stroke()
+
+      // Inner dark fill (HAL's lens)
+      const lensGrad = ctx.createRadialGradient(CX, CY, 0, CX, CY, 16)
+      lensGrad.addColorStop(0, `rgba(30, 20, 10, ${0.7 + intensity * 0.2})`)
+      lensGrad.addColorStop(0.6, `rgba(15, 10, 5, ${0.85})`)
+      lensGrad.addColorStop(1, `rgba(10, 7, 3, 0.9)`)
+      ctx.beginPath()
+      ctx.arc(CX, CY, 16, 0, Math.PI * 2)
+      ctx.fillStyle = lensGrad
+      ctx.fill()
+
+      // Orbital particles (Aleph's cosmic debris)
+      const particleSpeedMult = logoState === 'thinking' ? 4 : logoState === 'typing' ? 1.5 : 1
+      particles.forEach(p => {
+        p.angle += p.speed * particleSpeedMult
+        const wobble = Math.sin(time * 2 + p.angle * 3) * 2 * intensity
+        const r = p.radius + wobble
+        const px = CX + Math.cos(p.angle) * r
+        const py = CY + Math.sin(p.angle) * r
+        const alpha = p.brightness * (0.15 + intensity * 0.6)
+        const sz = p.size * (1 + intensity * 0.8)
+
+        ctx.beginPath()
+        ctx.arc(px, py, sz, 0, Math.PI * 2)
+        ctx.fillStyle = `rgba(232, 184, 122, ${alpha})`
+        ctx.fill()
+      })
+
+      // Core glow layers — red (HAL) merging with white (Aleph)
+      // The thinking state pulls toward brighter white; idle is more red
+      const whiteMix = intensity
+      const coreR = 220 + (255 - 220) * whiteMix
+      const coreG = 60 + (255 - 60) * whiteMix * 0.8
+      const coreB = 30 + (240 - 30) * whiteMix * 0.6
+
+      // Outer glow
+      const glowSize = 10 + Math.sin(time * 2) * 2 * (1 + intensity * 2)
+      const outerGlow = ctx.createRadialGradient(CX, CY, 0, CX, CY, glowSize)
+      outerGlow.addColorStop(0, `rgba(${coreR}, ${coreG}, ${coreB}, ${0.3 + intensity * 0.3})`)
+      outerGlow.addColorStop(0.5, `rgba(${coreR * 0.7}, ${coreG * 0.5}, ${coreB * 0.3}, ${0.1 + intensity * 0.15})`)
+      outerGlow.addColorStop(1, 'rgba(0, 0, 0, 0)')
+      ctx.beginPath()
+      ctx.arc(CX, CY, glowSize, 0, Math.PI * 2)
+      ctx.fillStyle = outerGlow
+      ctx.fill()
+
+      // Inner core point — the singularity
+      const corePulse = 2.5 + Math.sin(time * 3) * 0.8 * (1 + intensity * 2)
+      const coreGrad = ctx.createRadialGradient(CX, CY, 0, CX, CY, corePulse)
+      coreGrad.addColorStop(0, `rgba(${Math.min(255, coreR + 30)}, ${Math.min(255, coreG + 40)}, ${Math.min(255, coreB + 20)}, 1)`)
+      coreGrad.addColorStop(0.5, `rgba(${coreR}, ${coreG}, ${coreB}, 0.8)`)
+      coreGrad.addColorStop(1, `rgba(${coreR * 0.5}, ${coreG * 0.3}, ${coreB * 0.2}, 0)`)
+      ctx.beginPath()
+      ctx.arc(CX, CY, corePulse, 0, Math.PI * 2)
+      ctx.fillStyle = coreGrad
+      ctx.fill()
+
+      // Bright white center dot (Aleph singularity)
+      const dotSize = 1 + Math.sin(time * 4) * 0.3 * (1 + intensity)
+      ctx.beginPath()
+      ctx.arc(CX, CY, dotSize, 0, Math.PI * 2)
+      ctx.fillStyle = `rgba(255, 255, 250, ${0.6 + intensity * 0.4})`
+      ctx.fill()
+
+      // Geometric light streaks when thinking (Interstellar tesseract lines)
+      if (intensity > 0.3) {
+        const streakAlpha = (intensity - 0.3) * 0.4
+        for (let i = 0; i < 4; i++) {
+          const a = (Math.PI / 2) * i + time * 0.5
+          const len = 14 + Math.sin(time * 3 + i) * 4
+          ctx.beginPath()
+          ctx.moveTo(CX + Math.cos(a) * 4, CY + Math.sin(a) * 4)
+          ctx.lineTo(CX + Math.cos(a) * len, CY + Math.sin(a) * len)
+          ctx.strokeStyle = `rgba(232, 184, 122, ${streakAlpha})`
+          ctx.lineWidth = 0.5
+          ctx.stroke()
+        }
+      }
+
+      requestAnimationFrame(drawLogo)
+    }
+
+    drawLogo()
+
+    // ── App Logic ──
+    const sidebar = document.getElementById('sidebar')
+    const feed = document.getElementById('feed')
+    const input = document.getElementById('prompt-input')
+    const sendBtn = document.getElementById('send-btn')
+    const confirmBar = document.getElementById('confirm-bar')
+    const confirmText = document.getElementById('confirm-text')
+    const btnApprove = document.getElementById('btn-approve')
+    const btnReject = document.getElementById('btn-reject')
+
+    let currentPlan = null
+    let backendUrl = ''
+
+    // Track typing for logo animation
+    input.addEventListener('input', () => {
+      if (input.value.trim().length > 0) {
+        logoState = 'typing'
+      } else {
+        logoState = 'idle'
+      }
+    })
+
+    async function loadSettings() {
+      const settings = await window.electron.getSettings()
+      backendUrl = settings.backendUrl || 'http://localhost:8000'
+    }
+
+    function addFeedItem(text, type = 'info', icon = '✦') {
+      const item = document.createElement('div')
+      item.className = `feed-item ${type}`
+      item.innerHTML = `
+        <span class="feed-icon">${icon}</span>
+        <span class="feed-text">${text}</span>
+      `
+      feed.appendChild(item)
+      feed.scrollTop = feed.scrollHeight
+      return item
+    }
+
+    function addThinking() {
+      logoState = 'thinking'
+      const item = document.createElement('div')
+      item.className = 'feed-item thinking'
+      item.innerHTML = `
+        <span class="feed-icon">◉</span>
+        <span class="feed-text">Analizando dependencias<div class="dot-pulse"><span></span><span></span><span></span></div></span>
+      `
+      feed.appendChild(item)
+      feed.scrollTop = feed.scrollHeight
+      return item
+    }
+
+    async function sendPromptToBackend() {
+      const text = input.value.trim()
+      if (!text) return
+
+      input.value = ''
+      sendBtn.disabled = true
+      confirmBar.classList.remove('visible')
+      currentPlan = null
+
+      addFeedItem(`<strong>Vos:</strong> ${text}`, 'info', '▸')
+
+      const thinkingItem = addThinking()
+
+      try {
+        const response = await fetch(`${backendUrl}/report-delay`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: text })
+        })
+
+        thinkingItem.remove()
+        logoState = 'idle'
+
+        if (!response.ok) throw new Error(`Error ${response.status}`)
+
+        const data = await response.json()
+        currentPlan = data
+
+        addFeedItem(`<strong>Plan propuesto:</strong> ${data.summary}`, 'thinking', '◎')
+
+        if (data.actions && data.actions.length > 0) {
+          data.actions.forEach(action => {
+            const icons = {
+              update_calendar_event: '▪',
+              update_jira_issue: '▪',
+              notify_slack: '▪'
+            }
+            const labels = {
+              update_calendar_event: `Mover evento <strong>${action.target_id}</strong> al ${action.params.new_start?.split('T')[0]}`,
+              update_jira_issue: `Reasignar <strong>${action.target_id}</strong> → ${action.params.new_assignee}`,
+              notify_slack: `Notificar al equipo`
+            }
+            addFeedItem(
+              labels[action.type] || JSON.stringify(action),
+              'info',
+              icons[action.type] || '▪'
+            )
+          })
+        }
+
+        confirmText.textContent = `¿Ejecutar ${data.actions?.length || 0} cambios?`
+        confirmBar.classList.add('visible')
+
+      } catch (err) {
+        thinkingItem?.remove()
+        logoState = 'idle'
+        addFeedItem(`Error al conectar con el backend: <strong>${err.message}</strong>`, 'error', '✕')
+      }
+
+      sendBtn.disabled = false
+    }
+
+    async function executePlan() {
+      if (!currentPlan) return
+
+      confirmBar.classList.remove('visible')
+      logoState = 'thinking'
+      addFeedItem('Ejecutando cambios...', 'thinking', '◉')
+
+      try {
+        const response = await fetch(`${backendUrl}/execute-plan`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actions: currentPlan.actions })
+        })
+
+        if (!response.ok) throw new Error(`Error ${response.status}`)
+
+        const result = await response.json()
+
+        result.results?.forEach(r => {
+          if (r.success) {
+            addFeedItem(r.message || 'Cambio ejecutado correctamente', 'success', '✓')
+          } else {
+            addFeedItem(r.message || 'Error al ejecutar cambio', 'error', '✕')
+          }
+        })
+
+        addFeedItem('Todos los cambios aplicados.', 'success', '✦')
+
+      } catch (err) {
+        addFeedItem(`Error al ejecutar: <strong>${err.message}</strong>`, 'error', '✕')
+      }
+
+      logoState = 'idle'
+      currentPlan = null
+    }
+
+    // Events
+    document.getElementById('btn-close').addEventListener('click', () => {
+      window.electron.hideOverlay()
+    })
+
+    document.getElementById('btn-settings').addEventListener('click', () => {
+      window.electron.openSettings()
+    })
+
+    sendBtn.addEventListener('click', sendPromptToBackend)
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        sendPromptToBackend()
+      }
+    })
+
+    btnApprove.addEventListener('click', executePlan)
+
+    btnReject.addEventListener('click', () => {
+      confirmBar.classList.remove('visible')
+      currentPlan = null
+      addFeedItem('Plan cancelado.', 'info', '✕')
+    })
+
+    window.electron.onOverlayOpened(() => {
+      setTimeout(() => sidebar.classList.add('visible'), 10)
+      input.focus()
+      loadSettings()
+    })
+
+    loadSettings()
+  </script>
+</body>
+</html>
