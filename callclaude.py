@@ -138,8 +138,7 @@ for day in timeline_jira:
 # PASO 2 — CLAUDE ASIGNA PERSONAS Y GENERA EL SUMMARY
 # =============================================================================
 
-MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp-test/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
-#MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
+MCP_SERVER_URL = "https://iandib.app.n8n.cloud/mcp/101a48e4-4bd9-46dc-8e6b-d5d225c593c5"
 
 HEADERS = {
     "x-api-key": os.getenv("ANTHROPIC_API_KEY"),
@@ -156,13 +155,13 @@ payload_claude = {
     }
 }
 
-print("Llamando a Claude...")
+
 
 response = requests.post(
     "https://api.anthropic.com/v1/messages",
     headers=HEADERS,
     json={
-        "model": "claude-sonnet-4-20250514",
+        "model": "claude-sonnet-4-6",
         "max_tokens": 1024,
         "system": (
             "Sos un orquestador de proyectos de software. "
@@ -263,25 +262,43 @@ else:
         # PASO 4 — ENVIAR EL PLAN AL MCP SERVER (JSON-RPC over SSE)
         # =====================================================================
 
+        # Nombres exactos de las tools tal como los expone n8n
+        TOOL_CALENDAR = "Call_sub_google_calendar_"
+        TOOL_JIRA     = "Call_sub_jira_issue_"
+        TOOL_DUEDATE  = "Call_sub_jira_duedate_"
+        TOOL_SLACK    = "Call_sub_slack_notify_"
+
+        # Mapa task_id → calendar_event_id para cuando Claude no lo incluye en la acción
+        cal_event_map = {t["id"]: t["calendar_event_id"] for t in contexto["all_tasks"]}
+
+        session = {"id": None}
+
         def mcp_call(method, params=None):
-            """Send a JSON-RPC request to the MCP server and return the result."""
             payload = {
                 "jsonrpc": "2.0",
                 "id": str(uuid.uuid4()),
                 "method": method,
                 "params": params or {}
             }
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            }
+            if session["id"]:
+                headers["mcp-session-id"] = session["id"]
+
             resp = requests.post(
                 MCP_SERVER_URL,
                 json=payload,
-                headers={
-                    #"Authorization": f"Bearer {os.getenv('N8N_API_KEY')}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, text/event-stream",
-                },
+                headers=headers,
                 verify=False,
                 stream=True,
             )
+
+            # Capturar session ID ANTES de consumir el stream
+            if "mcp-session-id" in resp.headers:
+                session["id"] = resp.headers["mcp-session-id"]
+
             result_text = ""
             for line in resp.iter_lines():
                 if not line:
@@ -299,35 +316,88 @@ else:
 
         print("\nConectando al MCP server (n8n)...")
 
-        # 1. Initialize the MCP session
+        # 1. Initialize — captura el session ID
         init = mcp_call("initialize", {
             "protocolVersion": "2024-11-05",
             "clientInfo": {"name": "hackitba-orchestrator", "version": "1.0"},
             "capabilities": {}
         })
-        print(f"MCP init: {json.dumps(init, indent=2)}")
+        print(f"MCP conectado — session: {session['id'][:8]}...")
 
-        # 2. Discover available tools
+        # 2. Confirmar inicialización (requerido por el protocolo MCP)
+        mcp_call("notifications/initialized")
+
+        # 3. Listar tools disponibles
         tools_resp = mcp_call("tools/list")
         available_tools = tools_resp.get("result", {}).get("tools", [])
-        print(f"MCP tools disponibles: {[t['name'] for t in available_tools]}")
+        tool_names = {t["name"] for t in available_tools}
+        print(f"MCP tools disponibles: {sorted(tool_names)}")
 
-        # 3. Call the first available tool with the plan
-        if available_tools:
-            tool_name = available_tools[0]["name"]
-            print(f"\nLlamando tool MCP '{tool_name}'...")
-            tool_result = mcp_call("tools/call", {
-                "name": tool_name,
-                "arguments": plan
-            })
-            print(f"MCP tool result: {json.dumps(tool_result, indent=2, ensure_ascii=False)}")
-        else:
-            print("No se encontraron tools en el MCP server.")
+        # 4. Ejecutar cada acción del plan usando la tool correcta
+        for action in plan.get("actions", []):
+            action_type = action.get("type")
+
+            if action_type == "reschedule_task":
+                # Obtener calendar_event_id: primero de la acción, luego del mapa
+                cal_id = action.get("calendar_event_id") or cal_event_map.get(action.get("task_id"))
+                if cal_id and TOOL_CALENDAR in tool_names:
+                    print(f"\nCalendar: moviendo {action.get('task_id')} → {action.get('new_start_date')}...")
+                    result = mcp_call("tools/call", {
+                        "name": TOOL_CALENDAR,
+                        "arguments": {
+                            "input": json.dumps({
+                                "operation": "update",
+                                "event_id":  cal_id,
+                                "start": action.get("new_start_date", ""),
+                                "end":   action.get("new_due_date", action.get("new_start_date", ""))
+                            })
+                        }
+                    })
+                    print(f"  Resultado: {json.dumps(result, indent=2, ensure_ascii=False)}")
+
+                # También actualizar due date en Jira si viene en la acción
+                if action.get("new_due_date") and TOOL_DUEDATE in tool_names:
+                    print(f"\nJira due date: {action.get('task_id')} → {action.get('new_due_date')}...")
+                    result = mcp_call("tools/call", {
+                        "name": TOOL_DUEDATE,
+                        "arguments": {
+                            "input": json.dumps({
+                                "issue_key": action.get("task_id"),
+                                "due_date":  action.get("new_due_date")
+                            })
+                        }
+                    })
+                    print(f"  Resultado: {json.dumps(result, indent=2, ensure_ascii=False)}")
+
+            elif action_type == "reassign_task" and TOOL_JIRA in tool_names:
+                print(f"\nJira: reasignando {action.get('task_id')} → {action.get('new_assignee')}...")
+                result = mcp_call("tools/call", {
+                    "name": TOOL_JIRA,
+                    "arguments": {
+                        "input": json.dumps({
+                            "issue_key":    action.get("task_id"),
+                            "new_assignee": action.get("new_assignee")
+                        })
+                    }
+                })
+                print(f"  Resultado: {json.dumps(result, indent=2, ensure_ascii=False)}")
+
+            elif action_type == "notify_team" and TOOL_SLACK in tool_names:
+                print(f"\nSlack: notificando al equipo...")
+                result = mcp_call("tools/call", {
+                    "name": TOOL_SLACK,
+                    "arguments": {
+                        "input": json.dumps({
+                            "message": action.get("message", "")
+                        })
+                    }
+                })
+                print(f"  Resultado: {json.dumps(result, indent=2, ensure_ascii=False)}")
 
         reassignments = {
             action["task_id"]: action["new_assignee"]
-            for action in plan["actions"]
-            if action["type"] == "reassign_task"
+            for action in plan.get("actions", [])
+            if action.get("type") == "reassign_task"
             and "task_id" in action
             and "new_assignee" in action
         }
