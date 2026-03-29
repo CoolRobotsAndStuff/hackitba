@@ -1,70 +1,59 @@
-import datetime
-import os.path
-
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from datetime import datetime, timezone
 
-# If modifying these scopes, delete the file token.json.
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+def get_calendar_tasks(calendar_id, service_account_file='service-account.json'):
+    """
+    Fetches all upcoming events from a Google Calendar and returns them as tasks.
 
+    Args:
+        calendar_id:          Your calendar ID (e.g. 'your@gmail.com')
+        service_account_file: Path to your service account JSON key file
 
-def main():
-  """Shows basic usage of the Google Calendar API.
-  Prints the start and name of the next 10 events on the user's calendar.
-  """
-  creds = None
-  # The file token.json stores the user's access and refresh tokens, and is
-  # created automatically when the authorization flow completes for the first
-  # time.
-  if os.path.exists("token.json"):
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-  # If there are no (valid) credentials available, let the user log in.
-  if not creds or not creds.valid:
-    if creds and creds.expired and creds.refresh_token:
-      creds.refresh(Request())
-    else:
-      flow = InstalledAppFlow.from_client_secrets_file(
-          "credentials.json", SCOPES
-      )
-      creds = flow.run_local_server(port=0)
-    # Save the credentials for the next run
-    with open("token.json", "w") as token:
-      token.write(creds.to_json())
+    Returns:
+        List of task dicts with datetime, name, deps, and days fields
+    """
+    SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 
-  try:
-    service = build("calendar", "v3", credentials=creds)
-
-    # Call the Calendar API
-    now = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
-    print("Getting the upcoming 10 events")
-    events_result = (
-        service.events()
-        .list(
-            calendarId="primary",
-            timeMin=now,
-            maxResults=10,
-            singleEvents=True,
-            orderBy="startTime",
-        )
-        .execute()
+    creds = service_account.Credentials.from_service_account_file(
+        service_account_file, scopes=SCOPES
     )
-    events = events_result.get("items", [])
+    service = build('calendar', 'v3', credentials=creds)
 
-    if not events:
-      print("No upcoming events found.")
-      return
+    time_min = datetime.now(timezone.utc).isoformat()
 
-    # Prints the start and name of the next 10 events
-    for event in events:
-      start = event["start"].get("dateTime", event["start"].get("date"))
-      print(start, event["summary"])
+    params = {
+        'calendarId':  calendar_id,
+        'singleEvents': True,
+        'orderBy':     'startTime',
+        'timeMin':     time_min,
+    }
 
-  except HttpError as error:
-    print(f"An error occurred: {error}")
+    all_events = []
+    while True:
+        result = service.events().list(**params).execute()
+        all_events.extend(result.get('items', []))
+        page_token = result.get('nextPageToken')
+        if not page_token:
+            break
+        params['pageToken'] = page_token
 
+    tasks = []
+    for event in all_events:
+        start   = event['start'].get('dateTime', event['start'].get('date'))
+        end_str = event['end'].get('dateTime',   event['end'].get('date'))
 
-if __name__ == "__main__":
-  main()
+        start_dt = datetime.fromisoformat(start)
+        end_dt   = datetime.fromisoformat(end_str)
+        days = max(1, (end_dt - start_dt).days or 1)
+
+        tasks.append({
+            "datetime": start,
+            "name":     event.get('summary', 'Untitled'),
+            "deps":     [],
+            "days":     days,
+        })
+
+    return tasks
+
+print(get_calendar_tasks("hackitba.demo@gmail.com"))

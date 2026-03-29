@@ -209,11 +209,11 @@ def render_graph(tasks):
 
 if __name__ == "__main__":
     tasks = [
-        {"name": "Task 0", "deps": [    ], "days": 5},
-        {"name": "Task 1", "deps": [2, 3], "days": 1},
-        {"name": "Task 2", "deps": [3, 0], "days": 2},
-        {"name": "Task 3", "deps": [    ], "days": 1},
-        {"name": "Task 4", "deps": [    ], "days": 1},
+        {"datetime": "", "name": "Task 0", "deps": [    ], "days": 5},
+        {"datetime": "", "name": "Task 1", "deps": [2, 3], "days": 1},
+        {"datetime": "", "name": "Task 2", "deps": [3, 0], "days": 2},
+        {"datetime": "", "name": "Task 3", "deps": [    ], "days": 1},
+        {"datetime": "", "name": "Task 4", "deps": [    ], "days": 1},
     ]
 
     '''
