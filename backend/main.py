@@ -98,18 +98,57 @@ def _get_calendar_service():
     creds = service_account.Credentials.from_service_account_file(sa_path, scopes=SCOPES)
     return build('calendar', 'v3', credentials=creds)
 
+def _is_date_only(s):
+    """Check if a string is a date without meaningful time (date-only or midnight)."""
+    if not s:
+        return False
+    s = s.strip()
+    # Pure date: 2026-04-01
+    if len(s) == 10 and s.count('-') == 2:
+        return True
+    # Midnight variants: 2026-04-01T00:00:00, 2026-04-01T00:00:00Z, etc.
+    try:
+        dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+        return dt.hour == 0 and dt.minute == 0 and dt.second == 0
+    except Exception:
+        return False
+
+def _date_str(s):
+    """Extract YYYY-MM-DD from a date or datetime string."""
+    return s.strip()[:10]
+
 def calendar_create_direct(summary, start, end, description=None):
     """Create a Google Calendar event. Returns {success, message, event_id}."""
     try:
         service = _get_calendar_service()
-        start_dt = datetime.fromisoformat(start)
-        end_dt = datetime.fromisoformat(end) if end else start_dt + timedelta(hours=8)
 
-        event_body = {
-            'summary': summary,
-            'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'UTC'},
-            'end':   {'dateTime': end_dt.isoformat(),   'timeZone': 'UTC'},
-        }
+        if _is_date_only(start) and (_is_date_only(end) or not end or end == start):
+            # All-day event — avoids timezone issues
+            start_date = _date_str(start)
+            if end and end != start and _is_date_only(end):
+                # end date in Calendar API is exclusive, add 1 day
+                end_d = datetime.fromisoformat(end[:10]) + timedelta(days=1)
+                end_date = end_d.strftime('%Y-%m-%d')
+            else:
+                # Single day: end = start + 1 day (exclusive)
+                end_d = datetime.fromisoformat(start_date) + timedelta(days=1)
+                end_date = end_d.strftime('%Y-%m-%d')
+
+            event_body = {
+                'summary': summary,
+                'start': {'date': start_date},
+                'end':   {'date': end_date},
+            }
+        else:
+            # Timed event — has a specific hour
+            start_dt = datetime.fromisoformat(start)
+            end_dt = datetime.fromisoformat(end) if end else start_dt + timedelta(hours=1)
+            event_body = {
+                'summary': summary,
+                'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'America/Argentina/Buenos_Aires'},
+                'end':   {'dateTime': end_dt.isoformat(),   'timeZone': 'America/Argentina/Buenos_Aires'},
+            }
+
         if description:
             event_body['description'] = description
 
@@ -132,18 +171,42 @@ def calendar_update_direct(event_id, start=None, end=None, summary=None):
             event['summary'] = summary
 
         if start or end:
-            current_start = event['start'].get('dateTime', event['start'].get('date'))
-            current_end = event['end'].get('dateTime', event['end'].get('date'))
+            # Detect if existing event is all-day
+            existing_is_allday = 'date' in event['start']
 
-            start_dt = datetime.fromisoformat(start) if start else datetime.fromisoformat(current_start)
-            if end:
-                end_dt = datetime.fromisoformat(end)
+            # Decide format: all-day if input is date-only OR existing event is all-day
+            new_start_dateonly = _is_date_only(start) if start else existing_is_allday
+            new_end_dateonly = _is_date_only(end) if end else True
+            use_allday = new_start_dateonly and new_end_dateonly
+
+            if use_allday:
+                start_date = _date_str(start) if start else event['start'].get('date', _date_str(event['start'].get('dateTime', '')))
+                if end and _is_date_only(end):
+                    end_d = datetime.fromisoformat(_date_str(end)) + timedelta(days=1)
+                    end_date = end_d.strftime('%Y-%m-%d')
+                else:
+                    # Keep same duration or default 1 day
+                    end_d = datetime.fromisoformat(start_date) + timedelta(days=1)
+                    end_date = end_d.strftime('%Y-%m-%d')
+
+                event['start'] = {'date': start_date}
+                event['end']   = {'date': end_date}
             else:
-                duration = datetime.fromisoformat(current_end) - datetime.fromisoformat(current_start)
-                end_dt = start_dt + duration
+                current_start = event['start'].get('dateTime', event['start'].get('date'))
+                current_end = event['end'].get('dateTime', event['end'].get('date'))
 
-            event['start'] = {'dateTime': start_dt.isoformat(), 'timeZone': 'UTC'}
-            event['end']   = {'dateTime': end_dt.isoformat(),   'timeZone': 'UTC'}
+                start_dt = datetime.fromisoformat(start) if start else datetime.fromisoformat(current_start)
+                if end:
+                    end_dt = datetime.fromisoformat(end)
+                else:
+                    try:
+                        duration = datetime.fromisoformat(current_end) - datetime.fromisoformat(current_start)
+                    except Exception:
+                        duration = timedelta(hours=1)
+                    end_dt = start_dt + duration
+
+                event['start'] = {'dateTime': start_dt.isoformat(), 'timeZone': 'America/Argentina/Buenos_Aires'}
+                event['end']   = {'dateTime': end_dt.isoformat(),   'timeZone': 'America/Argentina/Buenos_Aires'}
 
         service.events().update(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event).execute()
         print(f"[CALENDAR] ✓ Updated event {event_id}")
@@ -889,10 +952,8 @@ def _sync_jira_date_to_calendar(issue_key, due_date):
             return
 
         print(f"[SYNC] Jira→Cal: {issue_key} → event {cal_event_id} date={due_date}")
-        start = f"{due_date}T09:00:00"
-        end = f"{due_date}T17:00:00"
-
-        r = calendar_update_direct(event_id=cal_event_id, start=start, end=end)
+        # Use date-only so it stays as an all-day event (no timezone shift)
+        r = calendar_update_direct(event_id=cal_event_id, start=due_date[:10])
 
         if r["success"]:
             print(f"[SYNC] ✓ Calendar {cal_event_id} updated")
