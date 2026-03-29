@@ -22,6 +22,12 @@ def jira_webhook():
     print(get_timeline_string(tasks));
     return jsonify({'status': 'ok'}), 200
 
+@app.route("/calendar_webhook", methods=['POST'])
+def calendar_webhook():
+    data = request.get_json(silent=True)
+    print("Received calendar stuff:", data)
+    return jsonify({'status': 'ok'}), 200
+
 @app.route("/incoming-event", methods=['POST'])
 def incoming_event():
     data = request.get_json(silent=True)
