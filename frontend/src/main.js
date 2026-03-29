@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, screen, ipcMain, nativeImage } = require('electron')
 const Store = require('electron-store')
 const path = require('path')
+const fs = require('fs')
 
 const store = new Store()
 
@@ -11,10 +12,57 @@ let isOverlayVisible = false
 // Icon path — works in both dev (npm start) and packaged (AppImage)
 function getIconPath() {
   if (app.isPackaged) {
-    // In AppImage, extraResources lands in process.resourcesPath
     return path.join(process.resourcesPath, 'icon.png')
   }
   return path.join(__dirname, 'assets', 'icon.png')
+}
+
+// On Linux (Wayland), the dock icon ONLY works via .desktop file.
+// This auto-installs one with the correct icon + StartupWMClass.
+function installDesktopFile() {
+  if (process.platform !== 'linux') return
+
+  const iconSrc = getIconPath()
+  const homeDir = require('os').homedir()
+
+  // Copy icon to a stable location GNOME can always find
+  const iconDir = path.join(homeDir, '.local', 'share', 'icons')
+  const iconDst = path.join(iconDir, 'haleph.png')
+  try {
+    fs.mkdirSync(iconDir, { recursive: true })
+    fs.copyFileSync(iconSrc, iconDst)
+  } catch (e) {
+    console.warn('[ICON] Could not copy icon:', e.message)
+  }
+
+  // Determine Exec line
+  let execLine
+  if (app.isPackaged) {
+    execLine = process.env.APPIMAGE || process.execPath
+  } else {
+    execLine = `bash -c "cd ${path.dirname(__dirname)} && npm start"`
+  }
+
+  const desktopContent = `[Desktop Entry]
+Name=HALeph
+Comment=AI Project Orchestrator
+Exec=${execLine}
+Icon=${iconDst}
+Type=Application
+Categories=Utility;
+StartupWMClass=haleph-overlay
+Terminal=false
+`
+
+  const desktopDir = path.join(homeDir, '.local', 'share', 'applications')
+  const desktopFile = path.join(desktopDir, 'haleph-overlay.desktop')
+  try {
+    fs.mkdirSync(desktopDir, { recursive: true })
+    fs.writeFileSync(desktopFile, desktopContent)
+    console.log('[ICON] Desktop file installed:', desktopFile)
+  } catch (e) {
+    console.warn('[ICON] Could not write .desktop file:', e.message)
+  }
 }
 
 function createOverlay() {
@@ -65,10 +113,20 @@ function toggleOverlay() {
 app.whenReady().then(() => {
   app.setAppUserModelId("ar.haleph.overlay")
 
+  // Install .desktop file so Linux dock shows the icon
+  installDesktopFile()
+
   const iconPath = getIconPath()
-  const trayIcon = nativeImage.createFromPath(iconPath)
-  // Tray icons should be small — resize if needed
-  tray = new Tray(trayIcon.isEmpty() ? nativeImage.createEmpty() : trayIcon.resize({ width: 22, height: 22 }))
+  const iconImage = nativeImage.createFromPath(iconPath)
+
+  if (iconImage.isEmpty()) {
+    console.warn('[WARN] Icon not found at:', iconPath)
+  } else {
+    console.log('[INFO] Icon loaded:', iconPath, iconImage.getSize())
+  }
+
+  const trayIcon = iconImage.isEmpty() ? nativeImage.createEmpty() : iconImage.resize({ width: 22, height: 22 })
+  tray = new Tray(trayIcon)
 
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Abrir overlay (Ctrl+Alt+Space)', click: toggleOverlay },
