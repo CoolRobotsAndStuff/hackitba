@@ -117,7 +117,7 @@ body {
   line-height: 1.55;
   animation: slideIn 0.25s ease;
   margin-top: 3px;
-  max-width: 82%;
+  max-width: 75%;
   font-weight: 400;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -145,7 +145,6 @@ body {
   border: 1px solid var(--border-warm);
   color: var(--warm-white-soft);
   align-self: flex-start;
-  max-width: 100%;
 }
 
 .feed-msg.error {
@@ -425,3 +424,11 @@ body {
   padding: 2px 0 4px 0;
   font-style: italic;
 }
+
+/* ── Double-click interactive elements ── */
+.feed-notification { cursor: pointer; }
+.feed-notification:hover { color: var(--warm-white-soft); }
+.history-entry { cursor: pointer; }
+.history-entry:hover { border-color: var(--border-warm-hover); }
+.team-task { cursor: pointer; border-radius: 3px; padding: 2px 4px; margin: 0 -4px; }
+.team-task:hover { background: rgba(232,213,186,0.04); }

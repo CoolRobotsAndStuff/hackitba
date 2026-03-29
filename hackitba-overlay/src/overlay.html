@@ -149,6 +149,16 @@ input.addEventListener('input',()=>{logoState=input.value.trim().length>0?'typin
 
 async function loadSettings(){const s=await window.electron.getSettings();backendUrl=s.backendUrl||'http://localhost:8000'}
 
+// Pre-fill chat input and switch to chat tab (for click interactions)
+function prefillChat(text) {
+  switchTab('chat')
+  input.value = text
+  input.focus()
+  // Place cursor at end
+  input.selectionStart = input.selectionEnd = text.length
+  logoState = 'typing'
+}
+
 function addMsg(text,cls='neutral'){
   const el=document.createElement('div')
   el.className=`feed-msg ${cls}`
@@ -187,8 +197,11 @@ async function sendPromptToBackend(){
   const thinkingItem=addThinking()
 
   try{
-    // Unified endpoint — backend decides if this is a delay report or a plan creation
-    const response=await fetch(`${backendUrl}/prompt`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
+    // Try unified endpoint first, fall back to legacy /report-delay
+    let response = await fetch(`${backendUrl}/prompt`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
+    if (response.status === 404) {
+      response = await fetch(`${backendUrl}/report-delay`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
+    }
     thinkingItem.remove();logoState='idle'
     if(!response.ok) throw new Error(`Error ${response.status}`)
     const data=await response.json();currentPlan=data
@@ -229,7 +242,7 @@ async function sendPromptToBackend(){
     confirmBar.classList.add('visible')
   }catch(err){
     thinkingItem?.remove();logoState='idle'
-    addMsg(`Error al conectar con el backend: ${err.message}`,'error')
+    addMsg(`Error: ${err.message} (${backendUrl || 'sin URL'})`,'error')
   }
   sendBtn.disabled=false
 }
@@ -341,22 +354,7 @@ document.getElementById('cfg-save-btn').addEventListener('click',async()=>{
 const graphCanvas=document.getElementById('graph-canvas')
 const gctx=graphCanvas.getContext('2d')
 
-const demoGraphData={
-  nodes:[
-    {id:'T-10',label:'Setup DB',status:'done',x:0.15,y:0.18},
-    {id:'T-11',label:'Auth API',status:'done',x:0.5,y:0.12},
-    {id:'T-12',label:'User CRUD',status:'progress',x:0.85,y:0.18},
-    {id:'T-13',label:'Frontend auth',status:'progress',x:0.28,y:0.5},
-    {id:'T-14',label:'Dashboard',status:'blocked',x:0.65,y:0.48},
-    {id:'T-15',label:'Notificaciones',status:'todo',x:0.42,y:0.82},
-    {id:'T-16',label:'Deploy',status:'todo',x:0.78,y:0.82}
-  ],
-  edges:[
-    {from:'T-10',to:'T-11'},{from:'T-11',to:'T-12'},{from:'T-11',to:'T-13'},
-    {from:'T-12',to:'T-14'},{from:'T-13',to:'T-14'},
-    {from:'T-14',to:'T-15'},{from:'T-14',to:'T-16'}
-  ]
-}
+// No hardcoded data — graph comes from backend responses or GET /graph-data
 
 // Graph state
 let graphNodes = null
@@ -538,9 +536,30 @@ function stopGraphLoop() {
 }
 
 function renderGraph() {
-  // Wait one frame so the panel is visible and getBoundingClientRect() returns real values
-  requestAnimationFrame(() => {
-    const data = graphData || demoGraphData
+  requestAnimationFrame(async () => {
+    let data = graphData
+    if (!data) {
+      // Fetch from backend
+      try {
+        const r = await fetch(`${backendUrl}/graph-data`)
+        if (r.ok) data = await r.json()
+      } catch(_) {}
+    }
+    if (!data || !data.nodes || data.nodes.length === 0) {
+      // Show empty state on canvas
+      const rect = graphCanvas.parentElement.getBoundingClientRect()
+      graphW = rect.width - 12; graphH = rect.height - 28
+      graphCanvas.width = graphW * 2; graphCanvas.height = graphH * 2
+      graphCanvas.style.width = graphW + 'px'; graphCanvas.style.height = graphH + 'px'
+      gctx.setTransform(2,0,0,2,0,0); gctx.clearRect(0,0,graphW,graphH)
+      gctx.font = '11px monospace'; gctx.fillStyle = 'rgba(232,213,186,0.25)'; gctx.textAlign = 'center'
+      gctx.fillText('Sin datos de grafo', graphW/2, graphH/2 - 8)
+      gctx.font = '9px monospace'; gctx.fillStyle = 'rgba(232,213,186,0.15)'
+      gctx.fillText('Enviá un prompt para generar dependencias', graphW/2, graphH/2 + 8)
+      gctx.setTransform(1,0,0,1,0,0)
+      return
+    }
+    graphData = data
     initGraphNodes(data)
     startGraphLoop()
   })
@@ -562,8 +581,21 @@ function findNodeAt(x, y) {
   return null
 }
 
+// Click node → go to chat with task ID pre-filled (only if not dragged)
+let didDrag = false
+
+graphCanvas.addEventListener('click', e => {
+  if (!graphNodes || didDrag) return
+  const {x, y} = canvasCoords(e)
+  const node = findNodeAt(x, y)
+  if (node) {
+    prefillChat(`Modificá ${node.id}: `)
+  }
+})
+
 graphCanvas.addEventListener('mousedown', e => {
   if (!graphNodes) return
+  didDrag = false
   const {x, y} = canvasCoords(e)
   const node = findNodeAt(x, y)
   if (node) {
@@ -577,6 +609,7 @@ graphCanvas.addEventListener('mousedown', e => {
 
 window.addEventListener('mousemove', e => {
   if (!dragNode) return
+  didDrag = true
   const {x, y} = canvasCoords(e)
   dragNode.px = Math.max(NODE_R, Math.min(graphW - NODE_R, x - dragOffX))
   dragNode.py = Math.max(NODE_R, Math.min(graphH - NODE_R, y - dragOffY))
@@ -584,7 +617,6 @@ window.addEventListener('mousemove', e => {
 
 window.addEventListener('mouseup', () => {
   if (dragNode) {
-    // Give the released node a small kick based on last drag motion — feels organic
     dragNode.vx *= 0.3; dragNode.vy *= 0.3
     dragNode = null
     graphCanvas.classList.remove('dragging')
@@ -605,15 +637,21 @@ async function pollPendingEvents() {
     events.forEach(ev => {
       const sourceLabel = { jira: 'Jira', google_calendar: 'Calendar', slack: 'Slack', github: 'GitHub' }[ev.source] || ev.source
       const msg = ev.message || JSON.stringify(ev.data)
-      addNotification(sourceLabel, msg)
+      addNotification(sourceLabel, msg, ev.data?.issue_key || ev.data?.event_id || '')
     })
   } catch (_) { /* falla silenciosamente */ }
 }
 
-function addNotification(source, text) {
+function addNotification(source, text, taskId) {
   const el = document.createElement('div')
   el.className = 'feed-notification'
   el.innerHTML = `<span class="notif-source">${source}</span>${text}`
+  // Double-click → prefill chat with the related task
+  const id = taskId || text.match(/([A-Z]+-\d+)/)?.[1] || ''
+  if (id) {
+    el.addEventListener('click', () => prefillChat(`Modificá ${id}: `))
+    el.title = 'Click para actuar sobre esta tarea'
+  }
   feed.appendChild(el)
   feed.scrollTop = feed.scrollHeight
   return el
@@ -650,6 +688,11 @@ async function loadHistory(){
       ah='<div class="history-actions-bar">'+entry.actions.map(a=>{const l={update_calendar_event:`Mover evento ${a.target_id||''}`,update_jira_issue:`Reasignar ${a.target_id||''}`,update_jira_duedate:`Deadline ${a.target_id||''}`,notify_slack:'Notificar equipo',create_jira_issue:`Crear: ${a.params?.summary||a.target_id||''}`,create_calendar_event:`Evento: ${a.params?.summary||a.target_id||''}`,create_github_issue:`Issue: ${a.params?.title||a.target_id||''}`};return`<span>${l[a.type]||a.type}</span>`}).join('')+'</div>'
     }
     el.innerHTML=`<div class="h-time">${ts}</div><div class="h-prompt">${entry.summary||entry.prompt||''}</div>${sources?`<div class="h-source">${sources}</div>`:''}${ah}`
+    el.title = 'Click para modificar este plan'
+    el.addEventListener('click', () => {
+      const ids = (entry.actions||[]).map(a=>a.target_id).filter(Boolean).join(', ')
+      prefillChat(`Modificá el plan de ${entry.summary||entry.prompt||ids}: `)
+    })
     historyList.appendChild(el)
   })
 }
@@ -677,11 +720,18 @@ async function loadTeamStatus(){
           const sm={done:'done',completed:'done',closed:'done','in progress':'progress',in_progress:'progress',active:'progress',blocked:'blocked',failed:'blocked',todo:'todo',pending:'todo',open:'todo',backlog:'todo'}
           const cls=sm[t.status?.toLowerCase()]||'todo'
           const src=t.source?` <span style="font-size:9px;color:var(--warm-white-dim);opacity:0.6">[${t.source}]</span>`:''
-          return`<div class="team-task">${t.id||''} ${t.title||''}${src}<span class="task-status ${cls}">${t.status||'todo'}</span></div>`
+          return`<div class="team-task" data-task-id="${t.id||''}" title="Click para modificar">${t.id||''} ${t.title||''}${src}<span class="task-status ${cls}">${t.status||'todo'}</span></div>`
         }).join('')+'</div>'
       }
       card.innerHTML=`<div class="team-card-name">${m.name||'Sin nombre'}</div><div class="team-card-role">${m.role||''}</div>${th}`
       teamList.appendChild(card)
+    })
+    // Delegate click on team tasks
+    teamList.addEventListener('click', e => {
+      const taskEl = e.target.closest('.team-task')
+      if (taskEl && taskEl.dataset.taskId) {
+        prefillChat(`Modificá ${taskEl.dataset.taskId}: `)
+      }
     })
   }catch(err){
     teamList.innerHTML=`<div class="team-empty">
