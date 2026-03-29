@@ -98,21 +98,66 @@ def _get_calendar_service():
     creds = service_account.Credentials.from_service_account_file(sa_path, scopes=SCOPES)
     return build('calendar', 'v3', credentials=creds)
 
+def _extract_time(s):
+    """Extract hour:minute from a datetime string. Returns (hour, minute) or None if date-only."""
+    if not s:
+        return None
+    s = s.strip()
+    if len(s) <= 10:
+        return None  # pure date like 2026-04-01
+    try:
+        dt = datetime.fromisoformat(s.replace('Z', '+00:00').replace('z', '+00:00'))
+        if dt.hour == 0 and dt.minute == 0 and dt.second == 0:
+            return None  # midnight = no explicit time
+        return (dt.hour, dt.minute)
+    except Exception:
+        return None
+
+def _date_only(s):
+    """Extract just YYYY-MM-DD from any date/datetime string."""
+    if not s:
+        return None
+    return s.strip()[:10]
+
 def calendar_create_direct(summary, start, end, description=None):
     """Create a Google Calendar event. Returns {success, message, event_id}."""
     try:
         service = _get_calendar_service()
-        start_dt = datetime.fromisoformat(start)
-        end_dt = datetime.fromisoformat(end) if end else start_dt + timedelta(hours=8)
+        start_time = _extract_time(start)
+        end_time = _extract_time(end)
 
-        event_body = {
-            'summary': summary,
-            'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'UTC'},
-            'end':   {'dateTime': end_dt.isoformat(),   'timeZone': 'UTC'},
-        }
+        if start_time:
+            # User specified a real time → timed event
+            start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+            if end and end_time:
+                end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+            else:
+                end_dt = start_dt + timedelta(hours=1)
+            event_body = {
+                'summary': summary,
+                'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'America/Argentina/Buenos_Aires'},
+                'end':   {'dateTime': end_dt.isoformat(),   'timeZone': 'America/Argentina/Buenos_Aires'},
+            }
+        else:
+            # Date only → all-day event (no timezone issues)
+            d = _date_only(start)
+            end_d = _date_only(end) if end and end != start else None
+            if end_d and end_d != d:
+                # Multi-day: end is exclusive in Google API
+                end_date = (datetime.fromisoformat(end_d) + timedelta(days=1)).strftime('%Y-%m-%d')
+            else:
+                # Single day
+                end_date = (datetime.fromisoformat(d) + timedelta(days=1)).strftime('%Y-%m-%d')
+            event_body = {
+                'summary': summary,
+                'start': {'date': d},
+                'end':   {'date': end_date},
+            }
+
         if description:
             event_body['description'] = description
 
+        print(f"[CALENDAR] Creating: {json.dumps(event_body, default=str)}")
         created = service.events().insert(calendarId=GOOGLE_CALENDAR_ID, body=event_body).execute()
         eid = created.get('id', '')
         print(f"[CALENDAR] ✓ Created: {summary} → {created.get('htmlLink', '')}")
@@ -132,19 +177,26 @@ def calendar_update_direct(event_id, start=None, end=None, summary=None):
             event['summary'] = summary
 
         if start or end:
-            current_start = event['start'].get('dateTime', event['start'].get('date'))
-            current_end = event['end'].get('dateTime', event['end'].get('date'))
+            start_time = _extract_time(start) if start else None
+            end_time = _extract_time(end) if end else None
 
-            start_dt = datetime.fromisoformat(start) if start else datetime.fromisoformat(current_start)
-            if end:
-                end_dt = datetime.fromisoformat(end)
+            if start_time:
+                # Explicit time → timed event
+                start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                if end and end_time:
+                    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                else:
+                    end_dt = start_dt + timedelta(hours=1)
+                event['start'] = {'dateTime': start_dt.isoformat(), 'timeZone': 'America/Argentina/Buenos_Aires'}
+                event['end']   = {'dateTime': end_dt.isoformat(),   'timeZone': 'America/Argentina/Buenos_Aires'}
             else:
-                duration = datetime.fromisoformat(current_end) - datetime.fromisoformat(current_start)
-                end_dt = start_dt + duration
+                # Date only → all-day event
+                d = _date_only(start) if start else event['start'].get('date', _date_only(event['start'].get('dateTime', '')))
+                end_date = (datetime.fromisoformat(d) + timedelta(days=1)).strftime('%Y-%m-%d')
+                event['start'] = {'date': d}
+                event['end']   = {'date': end_date}
 
-            event['start'] = {'dateTime': start_dt.isoformat(), 'timeZone': 'UTC'}
-            event['end']   = {'dateTime': end_dt.isoformat(),   'timeZone': 'UTC'}
-
+        print(f"[CALENDAR] Updating {event_id}: start={event.get('start')} end={event.get('end')}")
         service.events().update(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id, body=event).execute()
         print(f"[CALENDAR] ✓ Updated event {event_id}")
         return {"success": True, "message": f"Evento {event_id} actualizado en Calendar"}
@@ -542,12 +594,12 @@ def call_claude_for_plan(prompt_text, context):
                 "el conjunto completo de cambios necesarios. "
                 "\n\n"
                 "Tipos de accion validos: "
-                "update_calendar_event (params: new_start, new_end como ISO datetime), "
+                "update_calendar_event (params: new_start como YYYY-MM-DD, new_end opcional como YYYY-MM-DD), "
                 "update_jira_issue (params: new_assignee como accountId, o new_status), "
                 "update_jira_duedate (params: due_date como YYYY-MM-DD), "
                 "notify_slack (params: message), "
                 "create_jira_issue (params: summary, description, assignee, start, end), "
-                "create_calendar_event (params: summary, start, end como ISO datetime). "
+                "create_calendar_event (params: summary, start como YYYY-MM-DD, end opcional como YYYY-MM-DD). "
                 "Usa target_id para el ID del issue (KAN-1) o evento calendar. "
                 "\n\n"
                 "Si el usuario pide un plan completo, usa response_type:'plan' con phases. "
@@ -889,10 +941,8 @@ def _sync_jira_date_to_calendar(issue_key, due_date):
             return
 
         print(f"[SYNC] Jira→Cal: {issue_key} → event {cal_event_id} date={due_date}")
-        start = f"{due_date}T09:00:00"
-        end = f"{due_date}T17:00:00"
-
-        r = calendar_update_direct(event_id=cal_event_id, start=start, end=end)
+        # Use date-only so it stays as an all-day event (no timezone shift)
+        r = calendar_update_direct(event_id=cal_event_id, start=due_date[:10])
 
         if r["success"]:
             print(f"[SYNC] ✓ Calendar {cal_event_id} updated")
