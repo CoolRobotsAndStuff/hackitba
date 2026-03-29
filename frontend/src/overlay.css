@@ -362,22 +362,46 @@ body {
 }
 .team-refresh-btn:hover { background: rgba(232,213,186,0.08); color: var(--amber); }
 
-/* ── Notifications (external events — subtle, not boxed) ── */
-.feed-notification {
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--warm-white-dim);
-  padding: 3px 0 3px 10px;
-  border-left: 1px solid rgba(152,120,80,0.2);
-  margin: 2px 0;
-  animation: slideIn 0.2s ease;
+/* ── Notifications (external events — styled like executed actions) ── */
+.notification-group {
+  border-left-color: var(--amber) !important;
+  animation: notifPulse 0.5s ease;
 }
-.feed-notification .notif-source {
+.notification-group .notif-header-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 9px;
-  letter-spacing: 0.3px;
   text-transform: uppercase;
-  color: rgba(232,213,186,0.25);
-  margin-right: 4px;
+  letter-spacing: 0.4px;
+  color: var(--amber);
+  opacity: 0.8;
+}
+.notif-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7px;
+  line-height: 1;
+  animation: iconPulse 2s ease-in-out infinite;
+}
+.notification-group .cascade-hint-line {
+  font-size: 9px;
+  color: var(--amber);
+  opacity: 0.5;
+  font-style: italic;
+}
+.clickable-notification { cursor: pointer; }
+.clickable-notification:hover { border-left-color: var(--warm-white-soft) !important; background: rgba(152,120,80,0.06); }
+
+@keyframes notifPulse {
+  0% { border-left-color: var(--warm-white-soft); opacity: 0.5; transform: translateX(4px); }
+  50% { border-left-color: var(--amber); opacity: 1; }
+  100% { transform: translateX(0); }
+}
+@keyframes iconPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
 }
 
 /* ── Plan creation — timeline items ── */
@@ -425,16 +449,7 @@ body {
   font-style: italic;
 }
 
-/* ── Double-click interactive elements ── */
-.feed-notification { cursor: pointer; }
-.feed-notification:hover { color: var(--warm-white-soft); border-left-color: var(--amber); }
-.cascade-hint {
-  font-size: 9px;
-  color: var(--amber);
-  opacity: 0.6;
-  margin-top: 2px;
-  font-style: italic;
-}
+/* ── Interactive elements ── */
 .history-entry { cursor: pointer; }
 .history-entry:hover { border-color: var(--border-warm-hover); }
 .team-task { cursor: pointer; border-radius: 3px; padding: 2px 4px; margin: 0 -4px; }

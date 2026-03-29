@@ -132,7 +132,7 @@ function switchTab(t){
   tabBtns.forEach(b=>b.classList.toggle('active',b.dataset.tab===t))
   tabPanels.forEach(p=>p.classList.toggle('active',p.dataset.tab===t))
   inputArea.style.display=t==='chat'?'':'none'
-  if(t==='graph'){ renderGraph() } else { stopGraphLoop() }
+  if(t==='graph'){ renderGraph(); startGraphRefresh() } else { stopGraphLoop(); stopGraphRefresh() }
   if(t==='history') loadHistory()
   if(t==='team') loadTeamStatus()
 }
@@ -323,8 +323,8 @@ sendBtn.addEventListener('click',sendPromptToBackend)
 input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPromptToBackend()}})
 document.getElementById('btn-approve').addEventListener('click',executePlan)
 document.getElementById('btn-reject').addEventListener('click',()=>{confirmBar.classList.remove('visible');currentPlan=null;addMsg('Plan cancelado.','neutral')})
-window.electron.onOverlayOpened(()=>{setTimeout(()=>sidebar.classList.add('visible'),10);input.focus();loadSettings();startPolling()})
-loadSettings()
+window.electron.onOverlayOpened(()=>{setTimeout(()=>sidebar.classList.add('visible'),10);input.focus()})
+loadSettings().then(() => { startPolling(); pollPendingEvents() })
 
 // ═══ Settings ═══
 const settingsLayer=document.getElementById('settings-layer'),cfgMembersList=document.getElementById('cfg-members-list')
@@ -535,16 +535,73 @@ function stopGraphLoop() {
   if (graphAnimFrame) { cancelAnimationFrame(graphAnimFrame); graphAnimFrame = null }
 }
 
+// Periodic graph data refresh (every 10s while tab is open)
+let graphRefreshInterval = null
+
+function startGraphRefresh() {
+  if (graphRefreshInterval) return
+  graphRefreshInterval = setInterval(refreshGraphData, 10000)
+}
+
+function stopGraphRefresh() {
+  if (graphRefreshInterval) { clearInterval(graphRefreshInterval); graphRefreshInterval = null }
+}
+
+async function refreshGraphData() {
+  if (!backendUrl) return
+  try {
+    const r = await fetch(`${backendUrl}/graph-data?fresh=1`)
+    if (!r.ok) return
+    const data = await r.json()
+    if (!data || !data.nodes || data.nodes.length === 0) return
+
+    // If graph not initialized yet, do full init
+    if (!graphNodes) {
+      graphData = data
+      initGraphNodes(data)
+      startGraphLoop()
+      return
+    }
+
+    // Update existing graph in-place: add new nodes, remove deleted, keep positions
+    const oldMap = {}
+    graphNodes.forEach(n => { oldMap[n.id] = n })
+
+    const newIds = new Set(data.nodes.map(n => n.id))
+    const pad = 35
+
+    // Build updated node list preserving physics state
+    const updatedNodes = data.nodes.map(n => {
+      if (oldMap[n.id]) {
+        // Keep position and velocity, update label/status
+        const old = oldMap[n.id]
+        old.label = n.label
+        old.status = n.status
+        return old
+      }
+      // New node — place randomly near center
+      return {
+        id: n.id, label: n.label, status: n.status,
+        px: pad + n.x * (graphW - pad * 2),
+        py: pad + n.y * (graphH - pad * 2),
+        vx: 0, vy: 0, fx: 0, fy: 0
+      }
+    })
+
+    graphNodes = updatedNodes
+    graphEdges = data.edges
+    graphData = data
+  } catch (_) { /* silent */ }
+}
+
 function renderGraph() {
   requestAnimationFrame(async () => {
-    let data = graphData
-    if (!data) {
-      // Fetch from backend
-      try {
-        const r = await fetch(`${backendUrl}/graph-data`)
-        if (r.ok) data = await r.json()
-      } catch(_) {}
-    }
+    let data = null
+    // Always fetch fresh from backend (never use cached graphData)
+    try {
+      const r = await fetch(`${backendUrl}/graph-data?fresh=1`)
+      if (r.ok) data = await r.json()
+    } catch(_) {}
     if (!data || !data.nodes || data.nodes.length === 0) {
       // Show empty state on canvas
       const rect = graphCanvas.parentElement.getBoundingClientRect()
@@ -645,19 +702,35 @@ async function pollPendingEvents() {
 }
 
 function addNotification(source, text, taskId, cascadeHint, rawEvent) {
-  const el = document.createElement('div')
-  el.className = 'feed-notification'
+  // Render as an action-group (same style as executed actions)
+  const group = document.createElement('div')
+  group.className = 'action-group notification-group'
 
-  let html = `<span class="notif-source">${source}</span>${text}`
+  // Source header line
+  const srcLine = document.createElement('div')
+  srcLine.className = 'action-line notif-header-line'
+  const sourceIcons = { Jira: '◆', Calendar: '◇', Slack: '▸', GitHub: '●', HALeph: '◉' }
+  srcLine.innerHTML = `<span class="notif-icon">${sourceIcons[source] || '▪'}</span>${source}`
+  group.appendChild(srcLine)
+
+  // Detail line
+  const detailLine = document.createElement('div')
+  detailLine.className = 'action-line'
+  detailLine.textContent = text
+  group.appendChild(detailLine)
+
+  // Cascade hint line
   if (cascadeHint) {
-    html += `<div class="cascade-hint">${cascadeHint}</div>`
+    const hintLine = document.createElement('div')
+    hintLine.className = 'action-line cascade-hint-line'
+    hintLine.textContent = cascadeHint
+    group.appendChild(hintLine)
   }
-  el.innerHTML = html
 
   const id = taskId || text.match(/([A-Z]+-\d+)/)?.[1] || ''
   if (id) {
-    // Build a cascade-aware prompt from the change context
-    el.addEventListener('click', () => {
+    group.classList.add('clickable-notification')
+    group.addEventListener('click', () => {
       const changedFields = rawEvent?.data?.changed_fields
       let changeDesc = ''
       if (changedFields && typeof changedFields === 'object') {
@@ -672,16 +745,16 @@ function addNotification(source, text, taskId, cascadeHint, rawEvent) {
 
       prefillChat(prompt)
     })
-    el.title = 'Click para analizar efectos en cascada'
+    group.title = 'Click para analizar efectos en cascada'
   }
-  feed.appendChild(el)
+  feed.appendChild(group)
   feed.scrollTop = feed.scrollHeight
-  return el
+  return group
 }
 
 function startPolling() {
   if (pollingInterval) return
-  pollingInterval = setInterval(pollPendingEvents, 15000)
+  pollingInterval = setInterval(pollPendingEvents, 3000)
 }
 
 function stopPolling() {

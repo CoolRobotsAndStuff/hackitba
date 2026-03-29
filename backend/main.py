@@ -60,18 +60,42 @@ MCP_SERVER_URL = os.getenv(
 
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "hackitba.demo@gmail.com")
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-GOOGLE_SA_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE",
-                           os.path.join(_SCRIPT_DIR, "service-account.json"))
+_sa_env = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "service-account.json")
+# Resolve relative paths from .env relative to the script directory
+GOOGLE_SA_FILE = _sa_env if os.path.isabs(_sa_env) else os.path.join(_SCRIPT_DIR, _sa_env)
 
 
 # =============================================================================
 # GOOGLE CALENDAR — direct API (bypasses n8n MCP)
 # =============================================================================
 
+def _resolve_sa_path():
+    """Resolve service-account.json — try multiple locations."""
+    # 1. Already resolved absolute path
+    if os.path.isfile(GOOGLE_SA_FILE):
+        return GOOGLE_SA_FILE
+    # 2. Next to this script
+    beside_script = os.path.join(_SCRIPT_DIR, "service-account.json")
+    if os.path.isfile(beside_script):
+        return beside_script
+    # 3. Current working directory
+    cwd_path = os.path.join(os.getcwd(), "service-account.json")
+    if os.path.isfile(cwd_path):
+        return cwd_path
+    # Nothing found
+    raise FileNotFoundError(
+        f"service-account.json not found. Searched:\n"
+        f"  1. {GOOGLE_SA_FILE}\n"
+        f"  2. {beside_script}\n"
+        f"  3. {cwd_path}\n"
+        f"Place the file next to main.py ({_SCRIPT_DIR})"
+    )
+
 def _get_calendar_service():
     """Build Google Calendar API service using service account."""
     SCOPES = ['https://www.googleapis.com/auth/calendar']
-    creds = service_account.Credentials.from_service_account_file(GOOGLE_SA_FILE, scopes=SCOPES)
+    sa_path = _resolve_sa_path()
+    creds = service_account.Credentials.from_service_account_file(sa_path, scopes=SCOPES)
     return build('calendar', 'v3', credentials=creds)
 
 def calendar_create_direct(summary, start, end, description=None):
@@ -1070,18 +1094,18 @@ def team_status():
 def graph_data():
     global latest_graph
 
-    if latest_graph:
-        return jsonify(latest_graph), 200
+    # Always fetch fresh from Jira to avoid stale/deleted nodes
+    fresh = request.args.get("fresh", "0")
+    if fresh == "1" or not latest_graph:
+        issues = fetch_jira_issues(force=True)
+        context = jira_issues_to_context(issues)
+        graph = build_graph_from_context(context)
+        if graph:
+            latest_graph = graph
+            return jsonify(graph), 200
+        return jsonify({"nodes": [], "edges": []}), 200
 
-    issues = fetch_jira_issues()
-    context = jira_issues_to_context(issues)
-    graph = build_graph_from_context(context)
-
-    if graph:
-        latest_graph = graph
-        return jsonify(graph), 200
-
-    return jsonify({"nodes": [], "edges": []}), 200
+    return jsonify(latest_graph), 200
 
 
 @app.route("/incoming-event", methods=["POST"])
@@ -1263,6 +1287,11 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"  Jira:     {'✓' if JIRA_API_TOKEN else '✗'} {JIRA_DOMAIN}")
     print(f"  Claude:   {'✓' if ANTHROPIC_API_KEY else '✗'}")
+    try:
+        _sa_resolved = _resolve_sa_path()
+        print(f"  Calendar: ✓ {_sa_resolved}")
+    except FileNotFoundError as _e:
+        print(f"  Calendar: ✗ {_e}")
     print(f"  MCP:      {MCP_SERVER_URL[:50]}...")
     print(f"  Mappings: {len(get_all_mappings())} Jira↔Calendar links")
     print("=" * 60)
