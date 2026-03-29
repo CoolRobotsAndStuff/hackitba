@@ -2,6 +2,8 @@ from flask import Flask, send_from_directory, render_template, request, jsonify
 app = Flask(__name__, static_folder="static", template_folder="pages")
 import sqlite3
 
+from jira import *
+
 conn = sqlite3.connect('data.db', check_same_thread=False)
 c = conn.cursor()
 c.execute('CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, user TEXT, position INTEGER)')
@@ -11,10 +13,18 @@ conn.commit()
 def index():
     return render_template("./index.html")
 
+@app.route("/jira_webhook", methods=['POST'])
+def jira_webhook():
+    data = request.get_json(silent=True)
+    tasks = get_jira_tasks()
+    print('Received Jira event. Now the tasks are:', tasks)
+    print("Timeline:")
+    print(get_timeline_string(tasks));
+    return jsonify({'status': 'ok'}), 200
+
 @app.route("/incoming-event", methods=['POST'])
 def incoming_event():
     data = request.get_json(silent=True)
-    print('Received event:', data)
     return jsonify({'status': 'ok'}), 200
 
 @app.route('/tasks', methods=['POST'])
