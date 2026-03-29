@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HALeph</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div id="sidebar">
+    <div id="header">
+      <div id="header-left">
+        <div id="haleph-logo"><canvas id="logo-canvas" width="64" height="64"></canvas></div>
+        <h1>HALeph</h1>
+      </div>
+      <div id="header-buttons">
+        <button class="icon-btn" id="btn-settings" title="Configuración">⚙</button>
+        <button class="icon-btn" id="btn-close" title="Cerrar (Ctrl+Alt+Space)">✕</button>
+      </div>
+    </div>
+
+    <div id="tab-bar">
+      <button class="tab-btn active" data-tab="chat">Chat</button>
+      <button class="tab-btn" data-tab="graph">Grafo</button>
+      <button class="tab-btn" data-tab="history">Historial</button>
+      <button class="tab-btn" data-tab="team">Equipo</button>
+    </div>
+
+    <div class="tab-panel active" id="panel-chat" data-tab="chat">
+      <div id="feed">
+        <div class="feed-msg neutral">Contame qué pasó o qué necesitás planificar. Ejemplo: "Juan se atrasó 2 días en T-14" o "creá un plan para tener un MVP del rover para el 18 de junio"</div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-graph" data-tab="graph">
+      <div id="graph-panel">
+        <canvas id="graph-canvas"></canvas>
+        <div class="graph-legend">
+          <div class="graph-legend-item"><div class="graph-legend-dot" style="background:var(--status-done)"></div>Completada</div>
+          <div class="graph-legend-item"><div class="graph-legend-dot" style="background:var(--status-progress)"></div>En progreso</div>
+          <div class="graph-legend-item"><div class="graph-legend-dot" style="background:var(--status-blocked)"></div>Bloqueada</div>
+          <div class="graph-legend-item"><div class="graph-legend-dot" style="background:var(--status-todo)"></div>Pendiente</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-history" data-tab="history">
+      <div id="history-panel">
+        <button class="history-clear-btn" id="btn-clear-history">Limpiar historial</button>
+        <div id="history-list"></div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="panel-team" data-tab="team">
+      <div id="team-panel">
+        <button class="team-refresh-btn" id="btn-refresh-team">Actualizar estado</button>
+        <div id="team-list"></div>
+      </div>
+    </div>
+
+    <div id="input-area">
+      <div id="confirm-bar">
+        <p id="confirm-text">¿Ejecutar estos cambios?</p>
+        <div id="confirm-buttons">
+          <button class="confirm-btn" id="btn-approve">Ejecutar plan</button>
+          <button class="confirm-btn" id="btn-reject">Cancelar</button>
+        </div>
+      </div>
+      <textarea id="prompt-input" rows="2" placeholder="Describí un problema o pedí un plan..."></textarea>
+      <button id="send-btn">Enviar</button>
+    </div>
+
+    <div id="settings-layer">
+      <div id="settings-header">
+        <h2>Configuración</h2>
+        <button class="icon-btn" id="btn-close-settings">✕</button>
+      </div>
+      <div id="settings-body">
+        <div class="cfg-section">
+          <div class="cfg-label-sm">Backend</div>
+          <label class="cfg-field-label">URL del backend</label>
+          <input class="cfg-input" id="cfg-backend-url" type="text" placeholder="https://tu-backend.railway.app" />
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-label-sm">Jira</div>
+          <label class="cfg-field-label">Dominio de Jira</label>
+          <input class="cfg-input" id="cfg-jira-domain" type="text" placeholder="hackitba-demo.atlassian.net" />
+        </div>
+        <div class="cfg-section">
+          <div class="cfg-label-sm">Equipo</div>
+          <div id="cfg-members-list"></div>
+          <button class="cfg-add-btn" id="cfg-add-member">+ Agregar miembro</button>
+        </div>
+        <button class="cfg-save-btn" id="cfg-save-btn">Guardar</button>
+        <div class="cfg-save-msg" id="cfg-save-msg"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ═══ Logo ═══
+const logoCanvas = document.getElementById('logo-canvas')
+const lctx = logoCanvas.getContext('2d')
+const LW=64,LH=64,LCX=LW/2,LCY=LH/2
+let logoState='idle',ltime=0,lparticles=[]
+for(let i=0;i<12;i++) lparticles.push({angle:(Math.PI*2*i)/12,radius:10+Math.random()*8,speed:0.008+Math.random()*0.012,size:0.4+Math.random()*0.6,brightness:0.3+Math.random()*0.7})
+
+function getIntensity(){return logoState==='thinking'?1:logoState==='typing'?0.35:0.12}
+function drawLogo(){
+  ltime+=0.016;const I=getIntensity();lctx.clearRect(0,0,LW,LH)
+  const rp=1+Math.sin(ltime*1.5)*0.02*(1+I*3)
+  lctx.beginPath();lctx.arc(LCX,LCY,22*rp,0,Math.PI*2);lctx.strokeStyle=`rgba(140,105,60,${0.3+I*0.25})`;lctx.lineWidth=1.5;lctx.stroke()
+  lctx.beginPath();lctx.arc(LCX,LCY,18*rp,0,Math.PI*2);lctx.strokeStyle=`rgba(152,120,80,${0.2+I*0.3})`;lctx.lineWidth=1;lctx.stroke()
+  const lg=lctx.createRadialGradient(LCX,LCY,0,LCX,LCY,16);lg.addColorStop(0,`rgba(30,20,10,${0.7+I*0.2})`);lg.addColorStop(0.6,'rgba(15,10,5,0.85)');lg.addColorStop(1,'rgba(10,7,3,0.9)')
+  lctx.beginPath();lctx.arc(LCX,LCY,16,0,Math.PI*2);lctx.fillStyle=lg;lctx.fill()
+  const ps=logoState==='thinking'?4:logoState==='typing'?1.5:1
+  lparticles.forEach(p=>{p.angle+=p.speed*ps;const w=Math.sin(ltime*2+p.angle*3)*2*I,r=p.radius+w;lctx.beginPath();lctx.arc(LCX+Math.cos(p.angle)*r,LCY+Math.sin(p.angle)*r,p.size*(1+I*0.8),0,Math.PI*2);lctx.fillStyle=`rgba(212,192,160,${p.brightness*(0.15+I*0.6)})`;lctx.fill()})
+  const wm=I,cR=200+55*wm,cG=60+180*wm*0.7,cB=30+170*wm*0.5
+  const gs=10+Math.sin(ltime*2)*2*(1+I*2);const og=lctx.createRadialGradient(LCX,LCY,0,LCX,LCY,gs);og.addColorStop(0,`rgba(${cR},${cG},${cB},${0.3+I*0.3})`);og.addColorStop(0.5,`rgba(${cR*0.7},${cG*0.5},${cB*0.3},${0.1+I*0.15})`);og.addColorStop(1,'rgba(0,0,0,0)')
+  lctx.beginPath();lctx.arc(LCX,LCY,gs,0,Math.PI*2);lctx.fillStyle=og;lctx.fill()
+  const cp=2.5+Math.sin(ltime*3)*0.8*(1+I*2);const cg=lctx.createRadialGradient(LCX,LCY,0,LCX,LCY,cp);cg.addColorStop(0,`rgba(${Math.min(255,cR+30)},${Math.min(255,cG+40)},${Math.min(255,cB+20)},1)`);cg.addColorStop(0.5,`rgba(${cR},${cG},${cB},0.8)`);cg.addColorStop(1,`rgba(${cR*0.5},${cG*0.3},${cB*0.2},0)`)
+  lctx.beginPath();lctx.arc(LCX,LCY,cp,0,Math.PI*2);lctx.fillStyle=cg;lctx.fill()
+  const ds=1+Math.sin(ltime*4)*0.3*(1+I);lctx.beginPath();lctx.arc(LCX,LCY,ds,0,Math.PI*2);lctx.fillStyle=`rgba(255,255,240,${0.6+I*0.4})`;lctx.fill()
+  if(I>0.3){const sa=(I-0.3)*0.4;for(let i=0;i<4;i++){const a=(Math.PI/2)*i+ltime*0.5,len=14+Math.sin(ltime*3+i)*4;lctx.beginPath();lctx.moveTo(LCX+Math.cos(a)*4,LCY+Math.sin(a)*4);lctx.lineTo(LCX+Math.cos(a)*len,LCY+Math.sin(a)*len);lctx.strokeStyle=`rgba(212,192,160,${sa})`;lctx.lineWidth=0.5;lctx.stroke()}}
+  requestAnimationFrame(drawLogo)
+}
+drawLogo()
+
+// ═══ Tabs ═══
+const tabBtns=document.querySelectorAll('.tab-btn'),tabPanels=document.querySelectorAll('.tab-panel'),inputArea=document.getElementById('input-area')
+function switchTab(t){
+  tabBtns.forEach(b=>b.classList.toggle('active',b.dataset.tab===t))
+  tabPanels.forEach(p=>p.classList.toggle('active',p.dataset.tab===t))
+  inputArea.style.display=t==='chat'?'':'none'
+  if(t==='graph'){ renderGraph(); startGraphRefresh() } else { stopGraphLoop(); stopGraphRefresh() }
+  if(t==='history') loadHistory()
+  if(t==='team') loadTeamStatus()
+}
+tabBtns.forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)))
+
+
+// ═══ Chat ═══
+const sidebar=document.getElementById('sidebar'),feed=document.getElementById('feed')
+const input=document.getElementById('prompt-input'),sendBtn=document.getElementById('send-btn')
+const confirmBar=document.getElementById('confirm-bar'),confirmText=document.getElementById('confirm-text')
+let currentPlan=null,backendUrl='',graphData=null
+
+input.addEventListener('input',()=>{logoState=input.value.trim().length>0?'typing':'idle'})
+
+async function loadSettings(){const s=await window.electron.getSettings();backendUrl=s.backendUrl||'http://localhost:8000'}
+
+// Pre-fill chat input and switch to chat tab (for click interactions)
+function prefillChat(text) {
+  switchTab('chat')
+  input.value = text
+  input.focus()
+  // Place cursor at end
+  input.selectionStart = input.selectionEnd = text.length
+  logoState = 'typing'
+}
+
+function addMsg(text,cls='neutral'){
+  const el=document.createElement('div')
+  el.className=`feed-msg ${cls}`
+  el.textContent=text
+  feed.appendChild(el)
+  feed.scrollTop=feed.scrollHeight
+  return el
+}
+
+function addMsgHtml(html,cls='neutral'){
+  const el=document.createElement('div')
+  el.className=`feed-msg ${cls}`
+  el.innerHTML=html
+  feed.appendChild(el)
+  feed.scrollTop=feed.scrollHeight
+  return el
+}
+
+function addActionGroup(lines){
+  const g=document.createElement('div');g.className='action-group'
+  lines.forEach(l=>{const ln=document.createElement('div');ln.className=`action-line ${l.cls||''}`;ln.textContent=l.text;g.appendChild(ln)})
+  feed.appendChild(g);feed.scrollTop=feed.scrollHeight;return g
+}
+
+function addThinking(){
+  logoState='thinking'
+  return addMsgHtml('Analizando dependencias<div class="dot-pulse"><span></span><span></span><span></span></div>','ai')
+}
+
+// ═══ Action classification helpers ═══
+function actionApp(a) {
+  const t = a.type || ''
+  if (t.includes('calendar')) return 'calendar'
+  if (t.includes('jira')) return 'jira'
+  if (t.includes('slack')) return 'slack'
+  return 'other'
+}
+
+function detectPrimaryApp(prompt) {
+  const p = prompt.toLowerCase()
+  if (p.match(/calendar|evento|event|reunión|meeting/)) return 'calendar'
+  if (p.match(/jira|tarea|task|issue|kan-|sprint/)) return 'jira'
+  return null
+}
+
+const actionLabels = {
+  update_calendar_event: a => `Mover evento ${a.target_id} al ${a.params?.new_start?.split('T')[0]||'?'}`,
+  update_jira_issue: a => `Reasignar ${a.target_id} → ${a.params?.new_assignee||'?'}`,
+  update_jira_duedate: a => `Actualizar deadline de ${a.target_id} al ${a.params?.due_date||'?'}`,
+  notify_slack: () => 'Notificar al equipo',
+  create_jira_issue: a => `Crear tarea: ${a.params?.summary||a.target_id||''}`,
+  create_calendar_event: a => `Crear evento: ${a.params?.summary||a.target_id||''}`,
+  create_github_issue: a => `Crear issue: ${a.params?.title||a.target_id||''}`
+}
+
+function renderActionLines(actions) {
+  addActionGroup(actions.map(a => ({
+    text: (actionLabels[a.type] || (() => JSON.stringify(a)))(a)
+  })))
+}
+
+let pendingCascade = null
+
+async function sendPromptToBackend(){
+  const text=input.value.trim();if(!text)return
+  input.value='';sendBtn.disabled=true
+  confirmBar.classList.remove('visible');currentPlan=null;pendingCascade=null
+
+  addMsg(text,'user')
+  const thinkingItem=addThinking()
+
+  try{
+    let response = await fetch(`${backendUrl}/prompt`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
+    if (response.status === 404) {
+      response = await fetch(`${backendUrl}/report-delay`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
+    }
+    thinkingItem.remove();logoState='idle'
+    if(!response.ok) throw new Error(`Error ${response.status}`)
+    const data=await response.json()
+    if(data.dependency_graph) graphData=data.dependency_graph
+
+    addMsg(data.summary,'ai')
+
+    if (data.type === 'plan') {
+      renderPlanTimeline(data)
+      currentPlan = data
+      confirmText.textContent = `¿Ejecutar ${data.actions?.length||0} cambios?`
+      confirmBar.classList.add('visible')
+    } else {
+      const actions = data.actions || []
+      const apps = new Set(actions.map(actionApp))
+      const hasCrossApp = apps.has('calendar') && apps.has('jira')
+
+      if (hasCrossApp && actions.length > 1) {
+        const primaryApp = detectPrimaryApp(text) || actionApp(actions[0])
+        const primaryActions = actions.filter(a => actionApp(a) === primaryApp)
+        const cascadeActions = actions.filter(a => actionApp(a) !== primaryApp && actionApp(a) !== 'slack')
+        const slackActions = actions.filter(a => actionApp(a) === 'slack')
+
+        if (primaryActions.length > 0 && cascadeActions.length > 0) {
+          renderActionLines(primaryActions)
+          currentPlan = { ...data, actions: primaryActions }
+          pendingCascade = { actions: [...cascadeActions, ...slackActions], planMeta: data }
+          const appLabel = primaryApp === 'calendar' ? 'Calendar' : 'Jira'
+          confirmText.textContent = `¿Ejecutar cambios en ${appLabel}?`
+          confirmBar.classList.add('visible')
+        } else {
+          if (actions.length > 0) renderActionLines(actions)
+          currentPlan = data
+          confirmText.textContent = `¿Ejecutar ${actions.length} cambios?`
+          confirmBar.classList.add('visible')
+        }
+      } else {
+        if (actions.length > 0) renderActionLines(actions)
+        currentPlan = data
+        confirmText.textContent = `¿Ejecutar ${actions.length} cambios?`
+        confirmBar.classList.add('visible')
+      }
+    }
+
+    if (data.warnings && data.warnings.length > 0) {
+      data.warnings.forEach(w => addNotification('HALeph', w))
+    }
+  }catch(err){
+    thinkingItem?.remove();logoState='idle'
+    addMsg(`Error: ${err.message} (${backendUrl || 'sin URL'})`,'error')
+  }
+  sendBtn.disabled=false
+}
+
+// Render a full plan timeline with phases/groups
+function renderPlanTimeline(data) {
+  const phases = data.phases || []
+  if (phases.length === 0 && data.actions && data.actions.length > 0) {
+    // Fallback: no phases, just flat actions grouped as one
+    const actionLines = data.actions.map(a => {
+      const labels = {
+        create_jira_issue: `Crear tarea: ${a.params?.summary||a.target_id||''}`,
+        create_calendar_event: `Crear evento: ${a.params?.summary||a.target_id||''}`,
+        create_github_issue: `Crear issue: ${a.params?.title||a.target_id||''}`,
+        update_jira_issue: `Actualizar ${a.target_id}`,
+        notify_slack: 'Notificar al equipo'
+      }
+      return { text: labels[a.type] || JSON.stringify(a) }
+    })
+    addActionGroup(actionLines)
+    return
+  }
+
+  phases.forEach(phase => {
+    const group = document.createElement('div')
+    group.className = 'plan-group'
+
+    // Phase header (e.g. "Semana 1 — Diseño", "Jun 2-6 — Prototipo")
+    if (phase.name) {
+      const hdr = document.createElement('div')
+      hdr.className = 'plan-header'
+      hdr.textContent = phase.name
+      group.appendChild(hdr)
+    }
+
+    // Tasks within this phase
+    ;(phase.tasks || []).forEach(task => {
+      const line = document.createElement('div')
+      line.className = 'plan-task'
+      let html = task.title || task.summary || ''
+      if (task.assignee) html = `<span class="plan-assignee">${task.assignee}</span>` + html
+      if (task.date || task.due) html += `<span class="plan-date">${task.date || task.due}</span>`
+      line.innerHTML = html
+      group.appendChild(line)
+    })
+
+    // Phase note (e.g. risk warning from history analysis)
+    if (phase.note) {
+      const note = document.createElement('div')
+      note.className = 'plan-note'
+      note.textContent = phase.note
+      group.appendChild(note)
+    }
+
+    feed.appendChild(group)
+  })
+  feed.scrollTop = feed.scrollHeight
+}
+
+async function executePlan(){
+  if(!currentPlan)return
+  confirmBar.classList.remove('visible');logoState='thinking'
+  addActionGroup([{text:'Ejecutando cambios...'}])
+  try{
+    const response=await fetch(`${backendUrl}/execute-plan`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actions:currentPlan.actions, type: currentPlan.type || 'adjust'})})
+    if(!response.ok) throw new Error(`Error ${response.status}`)
+    const result=await response.json()
+    const resultLines=(result.results||[]).map(r=>({text:r.message||(r.success?'Cambio ejecutado':'Error al ejecutar'),cls:r.success?'done':'error'}))
+    addActionGroup(resultLines)
+
+    // Save history for this batch
+    await window.electron.addHistoryEntry({prompt:currentPlan.prompt||'',summary:currentPlan.summary||'',actions:currentPlan.actions||[],results:result.results||[],sources:(currentPlan.actions||[]).map(a=>a.type).filter((v,i,s)=>s.indexOf(v)===i),type:currentPlan.type||'adjust'})
+
+    // If there are cascade actions pending, offer them now
+    if (pendingCascade && pendingCascade.actions.length > 0) {
+      const firstNonSlack = pendingCascade.actions.find(a => actionApp(a) !== 'slack') || pendingCascade.actions[0]
+      const cascadeAppName = actionApp(firstNonSlack) === 'calendar' ? 'Calendar' : actionApp(firstNonSlack) === 'jira' ? 'Jira' : actionApp(firstNonSlack)
+      addMsg(`Cambio vinculado en ${cascadeAppName}:`, 'ai')
+      renderActionLines(pendingCascade.actions)
+
+      currentPlan = { ...pendingCascade.planMeta, actions: pendingCascade.actions }
+      pendingCascade = null
+      confirmText.textContent = `¿Aplicar también en ${cascadeAppName}?`
+      confirmBar.classList.add('visible')
+      logoState='idle'
+      return
+    }
+
+    addMsg('Todos los cambios aplicados.','done-msg')
+  }catch(err){addMsg(`Error al ejecutar: ${err.message}`,'error')}
+  logoState='idle';currentPlan=null;pendingCascade=null
+}
+
+document.getElementById('btn-close').addEventListener('click',()=>window.electron.hideOverlay())
+sendBtn.addEventListener('click',sendPromptToBackend)
+input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPromptToBackend()}})
+document.getElementById('btn-approve').addEventListener('click',executePlan)
+document.getElementById('btn-reject').addEventListener('click',()=>{confirmBar.classList.remove('visible');currentPlan=null;pendingCascade=null;addMsg('Plan cancelado.','neutral')})
+window.electron.onOverlayOpened(()=>{setTimeout(()=>sidebar.classList.add('visible'),10);input.focus()})
+loadSettings().then(() => { startPolling(); pollPendingEvents() })
+
+// ═══ Settings ═══
+const settingsLayer=document.getElementById('settings-layer'),cfgMembersList=document.getElementById('cfg-members-list')
+document.getElementById('btn-settings').addEventListener('click',async()=>{
+  settingsLayer.classList.add('open')
+  const s=await window.electron.getSettings()
+  document.getElementById('cfg-backend-url').value=s.backendUrl||''
+  document.getElementById('cfg-jira-domain').value=s.jiraDomain||''
+  cfgMembersList.innerHTML=''
+  const m=s.teamMembers||[];if(m.length===0)addCfgMemberRow();else m.forEach(x=>addCfgMemberRow(x.name,x.accountId))
+})
+document.getElementById('btn-close-settings').addEventListener('click',()=>settingsLayer.classList.remove('open'))
+function addCfgMemberRow(name='',accountId=''){
+  const row=document.createElement('div');row.className='member-row'
+  row.innerHTML=`<input class="cfg-input" type="text" placeholder="Pedro" value="${name}" data-field="name" /><input class="cfg-input" type="text" placeholder="712020:abc..." value="${accountId}" data-field="id" /><button class="cfg-remove-btn">✕</button>`
+  row.querySelector('.cfg-remove-btn').addEventListener('click',()=>row.remove())
+  cfgMembersList.appendChild(row)
+}
+document.getElementById('cfg-add-member').addEventListener('click',()=>addCfgMemberRow())
+document.getElementById('cfg-save-btn').addEventListener('click',async()=>{
+  const members=[...cfgMembersList.querySelectorAll('.member-row')].map(r=>({name:r.querySelector('[data-field="name"]').value.trim(),accountId:r.querySelector('[data-field="id"]').value.trim()})).filter(m=>m.name&&m.accountId)
+  await window.electron.saveSettings({backendUrl:document.getElementById('cfg-backend-url').value.trim(),jiraDomain:document.getElementById('cfg-jira-domain').value.trim(),teamMembers:members})
+  const msg=document.getElementById('cfg-save-msg');msg.textContent='Configuración guardada';setTimeout(()=>msg.textContent='',2500)
+})
+
+// ═══ Dependency Graph — force-directed physics (Obsidian-style) ═══
+const graphCanvas=document.getElementById('graph-canvas')
+const gctx=graphCanvas.getContext('2d')
+
+// No hardcoded data — graph comes from backend responses or GET /graph-data
+
+// Graph state
+let graphNodes = null
+let graphEdges = null
+let graphW = 0, graphH = 0
+let dragNode = null, dragOffX = 0, dragOffY = 0
+let graphAnimFrame = null
+const NODE_R = 8
+
+// Physics constants — tuned for Obsidian-like feel
+const SPRING_K = 0.035        // spring stiffness along edges
+const SPRING_LEN = 90         // rest length of springs
+const REPULSION = 2200        // repulsion between all node pairs
+const DAMPING = 0.78          // velocity decay per frame (lower = bouncier)
+const CENTER_G = 0.0003       // very gentle pull toward canvas center
+
+const statusColors = {
+  done: '#D4C0A0',
+  progress: '#9A7B5A',
+  blocked: '#6B4035',
+  todo: 'rgba(180,160,140,0.3)'
+}
+
+function initGraphNodes(data) {
+  const rect = graphCanvas.parentElement.getBoundingClientRect()
+  graphW = rect.width - 12
+  graphH = rect.height - 28  // just legend height + padding
+  graphCanvas.width = graphW * 2
+  graphCanvas.height = graphH * 2
+  graphCanvas.style.width = graphW + 'px'
+  graphCanvas.style.height = graphH + 'px'
+
+  const pad = 35
+  graphNodes = data.nodes.map(n => ({
+    id: n.id, label: n.label, status: n.status,
+    px: pad + n.x * (graphW - pad * 2),
+    py: pad + n.y * (graphH - pad * 2),
+    vx: 0, vy: 0, fx: 0, fy: 0
+  }))
+  graphEdges = data.edges
+}
+
+function physicsTick() {
+  if (!graphNodes || !graphEdges) return
+  const nodeMap = {}
+  graphNodes.forEach(n => { nodeMap[n.id] = n; n.fx = 0; n.fy = 0 })
+
+  // Spring forces along edges (attract connected nodes toward rest length)
+  graphEdges.forEach(e => {
+    const a = nodeMap[e.from], b = nodeMap[e.to]
+    if (!a || !b) return
+    const dx = b.px - a.px, dy = b.py - a.py
+    const d = Math.sqrt(dx*dx + dy*dy) || 1
+    const stretch = d - SPRING_LEN
+    const fx = SPRING_K * stretch * (dx/d)
+    const fy = SPRING_K * stretch * (dy/d)
+    a.fx += fx; a.fy += fy
+    b.fx -= fx; b.fy -= fy
+  })
+
+  // Repulsion between every pair of nodes (push apart)
+  for (let i = 0; i < graphNodes.length; i++) {
+    for (let j = i + 1; j < graphNodes.length; j++) {
+      const a = graphNodes[i], b = graphNodes[j]
+      const dx = b.px - a.px, dy = b.py - a.py
+      const d2 = Math.max(dx*dx + dy*dy, 1)
+      const d = Math.sqrt(d2)
+      const f = REPULSION / d2
+      const fx = f * (dx/d), fy = f * (dy/d)
+      a.fx -= fx; a.fy -= fy
+      b.fx += fx; b.fy += fy
+    }
+  }
+
+  // Gentle gravity toward center (prevents drift)
+  const cx = graphW / 2, cy = graphH / 2
+  graphNodes.forEach(n => {
+    n.fx += (cx - n.px) * CENTER_G
+    n.fy += (cy - n.py) * CENTER_G
+  })
+
+  // Integrate velocities and positions
+  graphNodes.forEach(n => {
+    if (n === dragNode) { n.vx = 0; n.vy = 0; return } // pinned while dragging
+    n.vx = (n.vx + n.fx) * DAMPING
+    n.vy = (n.vy + n.fy) * DAMPING
+    n.px = Math.max(NODE_R + 2, Math.min(graphW - NODE_R - 2, n.px + n.vx))
+    n.py = Math.max(NODE_R + 2, Math.min(graphH - NODE_R - 2, n.py + n.vy))
+  })
+}
+
+function drawGraph() {
+  if (!graphNodes) return
+  gctx.setTransform(2, 0, 0, 2, 0, 0)
+  gctx.clearRect(0, 0, graphW, graphH)
+
+  const nodeMap = {}
+  graphNodes.forEach(n => nodeMap[n.id] = n)
+
+  // Edges
+  graphEdges.forEach(e => {
+    const f = nodeMap[e.from], t = nodeMap[e.to]
+    if (!f || !t) return
+    const dx = t.px - f.px, dy = t.py - f.py
+    const d = Math.sqrt(dx*dx + dy*dy)
+    if (d < 1) return
+    const ux = dx/d, uy = dy/d
+    const x1 = f.px + ux * NODE_R, y1 = f.py + uy * NODE_R
+    const x2 = t.px - ux * NODE_R, y2 = t.py - uy * NODE_R
+
+    // Edge tension color — stretched edges glow slightly amber
+    const tension = Math.min(1, Math.abs(d - SPRING_LEN) / SPRING_LEN)
+    const edgeAlpha = 0.15 + tension * 0.3
+    gctx.beginPath()
+    gctx.moveTo(x1, y1); gctx.lineTo(x2, y2)
+    gctx.strokeStyle = `rgba(184,149,106,${edgeAlpha})`
+    gctx.lineWidth = 1 + tension * 0.8; gctx.stroke()
+
+    // Arrowhead
+    const a = Math.atan2(y2-y1, x2-x1), al = 7, aa = 0.45
+    gctx.beginPath()
+    gctx.moveTo(x2, y2)
+    gctx.lineTo(x2 - al*Math.cos(a-aa), y2 - al*Math.sin(a-aa))
+    gctx.moveTo(x2, y2)
+    gctx.lineTo(x2 - al*Math.cos(a+aa), y2 - al*Math.sin(a+aa))
+    gctx.strokeStyle = `rgba(152,120,80,${0.25 + tension * 0.3})`
+    gctx.lineWidth = 1.5; gctx.stroke()
+  })
+
+  // Nodes
+  graphNodes.forEach(n => {
+    const color = statusColors[n.status] || statusColors.todo
+    const speed = Math.sqrt(n.vx*n.vx + n.vy*n.vy)
+    const isMoving = speed > 0.3
+
+    // Glow — amplified when node is in motion
+    const glowR = 18 + (isMoving ? speed * 4 : 0)
+    const glow = gctx.createRadialGradient(n.px, n.py, 0, n.px, n.py, glowR)
+    const baseColor = color.startsWith('#') ? color : '#B4A08C'
+    glow.addColorStop(0, baseColor + (isMoving ? '55' : '22'))
+    glow.addColorStop(1, 'rgba(0,0,0,0)')
+    gctx.beginPath(); gctx.arc(n.px, n.py, glowR, 0, Math.PI*2)
+    gctx.fillStyle = glow; gctx.fill()
+
+    // Node circle
+    gctx.beginPath(); gctx.arc(n.px, n.py, NODE_R, 0, Math.PI*2)
+    gctx.fillStyle = color; gctx.fill()
+    gctx.strokeStyle = 'rgba(0,0,0,0.3)'; gctx.lineWidth = 1; gctx.stroke()
+
+    // Drag ring
+    if (dragNode === n) {
+      gctx.beginPath(); gctx.arc(n.px, n.py, NODE_R + 4, 0, Math.PI*2)
+      gctx.strokeStyle = 'rgba(232,213,186,0.5)'; gctx.lineWidth = 1.5; gctx.stroke()
+    }
+
+    // Labels
+    gctx.font = '9px monospace'; gctx.fillStyle = 'rgba(232,213,186,0.85)'; gctx.textAlign = 'center'
+    gctx.fillText(n.id, n.px, n.py + 18)
+    gctx.font = '8px monospace'; gctx.fillStyle = 'rgba(232,213,186,0.4)'
+    gctx.fillText(n.label, n.px, n.py + 27)
+  })
+
+  gctx.setTransform(1, 0, 0, 1, 0, 0)
+}
+
+function graphLoop() {
+  physicsTick()
+  drawGraph()
+  graphAnimFrame = requestAnimationFrame(graphLoop)
+}
+
+function startGraphLoop() {
+  if (graphAnimFrame) return
+  graphLoop()
+}
+
+function stopGraphLoop() {
+  if (graphAnimFrame) { cancelAnimationFrame(graphAnimFrame); graphAnimFrame = null }
+}
+
+// Periodic graph data refresh (every 10s while tab is open)
+let graphRefreshInterval = null
+
+function startGraphRefresh() {
+  if (graphRefreshInterval) return
+  graphRefreshInterval = setInterval(refreshGraphData, 10000)
+}
+
+function stopGraphRefresh() {
+  if (graphRefreshInterval) { clearInterval(graphRefreshInterval); graphRefreshInterval = null }
+}
+
+async function refreshGraphData() {
+  if (!backendUrl) return
+  try {
+    const r = await fetch(`${backendUrl}/graph-data?fresh=1`)
+    if (!r.ok) return
+    const data = await r.json()
+    if (!data || !data.nodes || data.nodes.length === 0) return
+
+    // If graph not initialized yet, do full init
+    if (!graphNodes) {
+      graphData = data
+      initGraphNodes(data)
+      startGraphLoop()
+      return
+    }
+
+    // Update existing graph in-place: add new nodes, remove deleted, keep positions
+    const oldMap = {}
+    graphNodes.forEach(n => { oldMap[n.id] = n })
+
+    const newIds = new Set(data.nodes.map(n => n.id))
+    const pad = 35
+
+    // Build updated node list preserving physics state
+    const updatedNodes = data.nodes.map(n => {
+      if (oldMap[n.id]) {
+        // Keep position and velocity, update label/status
+        const old = oldMap[n.id]
+        old.label = n.label
+        old.status = n.status
+        return old
+      }
+      // New node — place randomly near center
+      return {
+        id: n.id, label: n.label, status: n.status,
+        px: pad + n.x * (graphW - pad * 2),
+        py: pad + n.y * (graphH - pad * 2),
+        vx: 0, vy: 0, fx: 0, fy: 0
+      }
+    })
+
+    graphNodes = updatedNodes
+    graphEdges = data.edges
+    graphData = data
+  } catch (_) { /* silent */ }
+}
+
+function renderGraph() {
+  requestAnimationFrame(async () => {
+    let data = null
+    // Always fetch fresh from backend (never use cached graphData)
+    try {
+      const r = await fetch(`${backendUrl}/graph-data?fresh=1`)
+      if (r.ok) data = await r.json()
+    } catch(_) {}
+    if (!data || !data.nodes || data.nodes.length === 0) {
+      // Show empty state on canvas
+      const rect = graphCanvas.parentElement.getBoundingClientRect()
+      graphW = rect.width - 12; graphH = rect.height - 28
+      graphCanvas.width = graphW * 2; graphCanvas.height = graphH * 2
+      graphCanvas.style.width = graphW + 'px'; graphCanvas.style.height = graphH + 'px'
+      gctx.setTransform(2,0,0,2,0,0); gctx.clearRect(0,0,graphW,graphH)
+      gctx.font = '11px monospace'; gctx.fillStyle = 'rgba(232,213,186,0.25)'; gctx.textAlign = 'center'
+      gctx.fillText('Sin datos de grafo', graphW/2, graphH/2 - 8)
+      gctx.font = '9px monospace'; gctx.fillStyle = 'rgba(232,213,186,0.15)'
+      gctx.fillText('Enviá un prompt para generar dependencias', graphW/2, graphH/2 + 8)
+      gctx.setTransform(1,0,0,1,0,0)
+      return
+    }
+    graphData = data
+    initGraphNodes(data)
+    startGraphLoop()
+  })
+}
+
+// Drag interaction
+function canvasCoords(e) {
+  const rect = graphCanvas.getBoundingClientRect()
+  return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+}
+
+function findNodeAt(x, y) {
+  const hitR = NODE_R + 8
+  for (let i = graphNodes.length - 1; i >= 0; i--) {
+    const n = graphNodes[i]
+    const dx = x - n.px, dy = y - n.py
+    if (dx*dx + dy*dy <= hitR*hitR) return n
+  }
+  return null
+}
+
+// Click node → go to chat with task ID pre-filled (only if not dragged)
+let didDrag = false
+
+graphCanvas.addEventListener('click', e => {
+  if (!graphNodes || didDrag) return
+  const {x, y} = canvasCoords(e)
+  const node = findNodeAt(x, y)
+  if (node) {
+    prefillChat(`Modificá ${node.id}: `)
+  }
+})
+
+graphCanvas.addEventListener('mousedown', e => {
+  if (!graphNodes) return
+  didDrag = false
+  const {x, y} = canvasCoords(e)
+  const node = findNodeAt(x, y)
+  if (node) {
+    dragNode = node
+    dragOffX = x - node.px
+    dragOffY = y - node.py
+    graphCanvas.classList.add('dragging')
+    e.preventDefault()
+  }
+})
+
+window.addEventListener('mousemove', e => {
+  if (!dragNode) return
+  didDrag = true
+  const {x, y} = canvasCoords(e)
+  dragNode.px = Math.max(NODE_R, Math.min(graphW - NODE_R, x - dragOffX))
+  dragNode.py = Math.max(NODE_R, Math.min(graphH - NODE_R, y - dragOffY))
+})
+
+window.addEventListener('mouseup', () => {
+  if (dragNode) {
+    dragNode.vx *= 0.3; dragNode.vy *= 0.3
+    dragNode = null
+    graphCanvas.classList.remove('dragging')
+  }
+})
+
+
+// ═══ Polling bidireccional — eventos entrantes de Jira/Calendar ═══
+let pollingInterval = null
+
+async function pollPendingEvents() {
+  if (!backendUrl) return
+  try {
+    const r = await fetch(`${backendUrl}/pending-events`)
+    if (!r.ok) return
+    const data = await r.json()
+    const events = data.events || []
+    events.forEach(ev => {
+      const sourceLabel = { jira: 'Jira', google_calendar: 'Calendar', slack: 'Slack', github: 'GitHub', haleph: 'HALeph' }[ev.source] || ev.source
+      const msg = ev.message || JSON.stringify(ev.data)
+      const taskId = ev.data?.issue_key || ev.data?.event_id || ''
+      const cascade = ev.data?.cascade_hint || ''
+      addNotification(sourceLabel, msg, taskId, cascade, ev)
+    })
+  } catch (_) { /* falla silenciosamente */ }
+}
+
+function addNotification(source, text, taskId, cascadeHint, rawEvent) {
+  // Render as an action-group (same style as executed actions)
+  const group = document.createElement('div')
+  group.className = 'action-group notification-group'
+
+  // Source header line
+  const srcLine = document.createElement('div')
+  srcLine.className = 'action-line notif-header-line'
+  srcLine.textContent = source
+  group.appendChild(srcLine)
+
+  // Detail line
+  const detailLine = document.createElement('div')
+  detailLine.className = 'action-line'
+  detailLine.textContent = text
+  group.appendChild(detailLine)
+
+  // Cascade hint line
+  if (cascadeHint) {
+    const hintLine = document.createElement('div')
+    hintLine.className = 'action-line cascade-hint-line'
+    hintLine.textContent = cascadeHint
+    group.appendChild(hintLine)
+  }
+
+  const id = taskId || text.match(/([A-Z]+-\d+)/)?.[1] || ''
+  if (id) {
+    group.classList.add('clickable-notification')
+    group.addEventListener('click', () => {
+      const changedFields = rawEvent?.data?.changed_fields
+      let changeDesc = ''
+      if (changedFields && typeof changedFields === 'object') {
+        changeDesc = Object.entries(changedFields)
+          .map(([k, v]) => typeof v === 'object' ? `${k}: ${v.from} → ${v.to}` : `${k}: ${v}`)
+          .join(', ')
+      }
+
+      const prompt = changeDesc
+        ? `Analizá el impacto del cambio en ${id} (${changeDesc}) en todas las apps conectadas (Jira, Calendar, Slack). ¿Hay tareas dependientes o eventos que se ven afectados?`
+        : `Analizá si el cambio en ${id} tiene efectos en cascada en las otras apps conectadas (Calendar, Slack). Proponé los cambios necesarios.`
+
+      prefillChat(prompt)
+    })
+    group.title = 'Click para analizar efectos en cascada'
+  }
+  feed.appendChild(group)
+  feed.scrollTop = feed.scrollHeight
+  return group
+}
+
+function startPolling() {
+  if (pollingInterval) return
+  pollingInterval = setInterval(pollPendingEvents, 3000)
+}
+
+function stopPolling() {
+  if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null }
+}
+
+// ═══ History ═══
+const historyList=document.getElementById('history-list')
+async function loadHistory(){
+  const history=await window.electron.getHistory();historyList.innerHTML=''
+  if(history.length===0){
+    historyList.innerHTML=`<div class="history-empty">
+      <div style="font-size:18px;margin-bottom:8px;opacity:0.4">◎</div>
+      <div>Sin acciones registradas aún</div>
+      <div style="margin-top:6px;font-size:10px;opacity:0.5">Ejecutá un plan desde el Chat para que aparezca acá</div>
+    </div>`
+    return
+  }
+  history.forEach(entry=>{
+    const el=document.createElement('div');el.className='history-entry'
+    const date=new Date(entry.timestamp)
+    const ts=date.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})
+    const sourceLabels={update_calendar_event:'Calendar',update_jira_issue:'Jira',update_jira_duedate:'Jira',notify_slack:'Slack',update_github:'GitHub',send_email:'Email',create_jira_issue:'Jira',create_calendar_event:'Calendar',create_github_issue:'GitHub'}
+    const sources=(entry.sources||[]).map(s=>sourceLabels[s]||s).join(' · ')
+    let ah='';if(entry.actions&&entry.actions.length>0){
+      ah='<div class="history-actions-bar">'+entry.actions.map(a=>{const l={update_calendar_event:`Mover evento ${a.target_id||''}`,update_jira_issue:`Reasignar ${a.target_id||''}`,update_jira_duedate:`Deadline ${a.target_id||''}`,notify_slack:'Notificar equipo',create_jira_issue:`Crear: ${a.params?.summary||a.target_id||''}`,create_calendar_event:`Evento: ${a.params?.summary||a.target_id||''}`,create_github_issue:`Issue: ${a.params?.title||a.target_id||''}`};return`<span>${l[a.type]||a.type}</span>`}).join('')+'</div>'
+    }
+    el.innerHTML=`<div class="h-time">${ts}</div><div class="h-prompt">${entry.summary||entry.prompt||''}</div>${sources?`<div class="h-source">${sources}</div>`:''}${ah}`
+    el.title = 'Click para modificar este plan'
+    el.addEventListener('click', () => {
+      const ids = (entry.actions||[]).map(a=>a.target_id).filter(Boolean).join(', ')
+      prefillChat(`Modificá el plan de ${entry.summary||entry.prompt||ids}: `)
+    })
+    historyList.appendChild(el)
+  })
+}
+document.getElementById('btn-clear-history').addEventListener('click',async()=>{await window.electron.clearHistory();loadHistory()})
+
+// ═══ Team ═══
+const teamList=document.getElementById('team-list')
+async function loadTeamStatus(){
+  teamList.innerHTML='<div class="team-empty">Cargando...</div>'
+  try{
+    const r=await fetch(`${backendUrl}/team-status`);if(!r.ok)throw new Error(`Error ${r.status}`)
+    const data=await r.json();teamList.innerHTML=''
+    const members=data.members||data||[];if(members.length===0){
+      teamList.innerHTML=`<div class="team-empty">
+        <div style="font-size:18px;margin-bottom:8px;opacity:0.4">⬡</div>
+        <div>Sin datos de equipo</div>
+        <div style="margin-top:6px;font-size:10px;opacity:0.5">El backend no devolvió miembros</div>
+      </div>`
+      return
+    }
+    members.forEach(m=>{
+      const card=document.createElement('div');card.className='team-card'
+      let th='';if(m.tasks&&m.tasks.length>0){
+        th='<div class="team-card-tasks">'+m.tasks.map(t=>{
+          const sm={done:'done',completed:'done',closed:'done','in progress':'progress',in_progress:'progress',active:'progress',blocked:'blocked',failed:'blocked',todo:'todo',pending:'todo',open:'todo',backlog:'todo'}
+          const cls=sm[t.status?.toLowerCase()]||'todo'
+          const src=t.source?` <span style="font-size:9px;color:var(--warm-white-dim);opacity:0.6">[${t.source}]</span>`:''
+          return`<div class="team-task" data-task-id="${t.id||''}" title="Click para modificar">${t.id||''} ${t.title||''}${src}<span class="task-status ${cls}">${t.status||'todo'}</span></div>`
+        }).join('')+'</div>'
+      }
+      card.innerHTML=`<div class="team-card-name">${m.name||'Sin nombre'}</div><div class="team-card-role">${m.role||''}</div>${th}`
+      teamList.appendChild(card)
+    })
+    // Delegate click on team tasks
+    teamList.addEventListener('click', e => {
+      const taskEl = e.target.closest('.team-task')
+      if (taskEl && taskEl.dataset.taskId) {
+        prefillChat(`Modificá ${taskEl.dataset.taskId}: `)
+      }
+    })
+  }catch(err){
+    teamList.innerHTML=`<div class="team-empty">
+      <div style="font-size:18px;margin-bottom:8px;opacity:0.4">✕</div>
+      <div>No se pudo conectar al backend</div>
+      <div style="margin-top:6px;font-size:10px;opacity:0.5">${err.message} — ¿Está corriendo el servidor?</div>
+    </div>`
+  }
+}
+document.getElementById('btn-refresh-team').addEventListener('click',loadTeamStatus)
+</script>
+</body>
+</html>
