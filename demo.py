@@ -80,7 +80,7 @@ def main():
 
     # Levantar HALeph
     correr(
-        [NPM, "start"],
+        ["Haleph.exe"],
         cwd=OVERLAY_DIR,
         nombre="HALeph (Electron)"
     )
