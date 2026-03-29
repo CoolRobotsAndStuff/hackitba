@@ -1,6 +1,6 @@
 # Haleph
 
-![](screenshot.jpg)
+![](screenshot.png)
 
 ## Ejecución
 
