@@ -15,7 +15,7 @@
       </div>
       <div id="header-buttons">
         <button class="icon-btn" id="btn-settings" title="Configuración">⚙</button>
-        <button class="icon-btn" id="btn-close" title="Cerrar (Ctrl+Shift+H)">✕</button>
+        <button class="icon-btn" id="btn-close" title="Cerrar (Ctrl+Alt+Space)">✕</button>
       </div>
     </div>
 
@@ -635,22 +635,44 @@ async function pollPendingEvents() {
     const data = await r.json()
     const events = data.events || []
     events.forEach(ev => {
-      const sourceLabel = { jira: 'Jira', google_calendar: 'Calendar', slack: 'Slack', github: 'GitHub' }[ev.source] || ev.source
+      const sourceLabel = { jira: 'Jira', google_calendar: 'Calendar', slack: 'Slack', github: 'GitHub', haleph: 'HALeph' }[ev.source] || ev.source
       const msg = ev.message || JSON.stringify(ev.data)
-      addNotification(sourceLabel, msg, ev.data?.issue_key || ev.data?.event_id || '')
+      const taskId = ev.data?.issue_key || ev.data?.event_id || ''
+      const cascade = ev.data?.cascade_hint || ''
+      addNotification(sourceLabel, msg, taskId, cascade, ev)
     })
   } catch (_) { /* falla silenciosamente */ }
 }
 
-function addNotification(source, text, taskId) {
+function addNotification(source, text, taskId, cascadeHint, rawEvent) {
   const el = document.createElement('div')
   el.className = 'feed-notification'
-  el.innerHTML = `<span class="notif-source">${source}</span>${text}`
-  // Double-click → prefill chat with the related task
+
+  let html = `<span class="notif-source">${source}</span>${text}`
+  if (cascadeHint) {
+    html += `<div class="cascade-hint">${cascadeHint}</div>`
+  }
+  el.innerHTML = html
+
   const id = taskId || text.match(/([A-Z]+-\d+)/)?.[1] || ''
   if (id) {
-    el.addEventListener('click', () => prefillChat(`Modificá ${id}: `))
-    el.title = 'Click para actuar sobre esta tarea'
+    // Build a cascade-aware prompt from the change context
+    el.addEventListener('click', () => {
+      const changedFields = rawEvent?.data?.changed_fields
+      let changeDesc = ''
+      if (changedFields && typeof changedFields === 'object') {
+        changeDesc = Object.entries(changedFields)
+          .map(([k, v]) => typeof v === 'object' ? `${k}: ${v.from} → ${v.to}` : `${k}: ${v}`)
+          .join(', ')
+      }
+
+      const prompt = changeDesc
+        ? `Analizá el impacto del cambio en ${id} (${changeDesc}) en todas las apps conectadas (Jira, Calendar, Slack). ¿Hay tareas dependientes o eventos que se ven afectados?`
+        : `Analizá si el cambio en ${id} tiene efectos en cascada en las otras apps conectadas (Calendar, Slack). Proponé los cambios necesarios.`
+
+      prefillChat(prompt)
+    })
+    el.title = 'Click para analizar efectos en cascada'
   }
   feed.appendChild(el)
   feed.scrollTop = feed.scrollHeight

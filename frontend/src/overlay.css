@@ -427,7 +427,14 @@ body {
 
 /* ── Double-click interactive elements ── */
 .feed-notification { cursor: pointer; }
-.feed-notification:hover { color: var(--warm-white-soft); }
+.feed-notification:hover { color: var(--warm-white-soft); border-left-color: var(--amber); }
+.cascade-hint {
+  font-size: 9px;
+  color: var(--amber);
+  opacity: 0.6;
+  margin-top: 2px;
+  font-style: italic;
+}
 .history-entry { cursor: pointer; }
 .history-entry:hover { border-color: var(--border-warm-hover); }
 .team-task { cursor: pointer; border-radius: 3px; padding: 2px 4px; margin: 0 -4px; }

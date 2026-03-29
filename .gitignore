@@ -4,3 +4,10 @@ node_modules/
 package-lock.json
 package.json
 nohup.out
+.env
+.venv/
+service-account.json
+venv/
+__pycache__/
+haleph.db
+dist

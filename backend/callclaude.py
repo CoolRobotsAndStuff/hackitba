@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from collections import deque
 from copy import copy, deepcopy
 from dataclasses import dataclass
-from algo import *
+from backend.algo import *
 
 load_dotenv()
 

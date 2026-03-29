@@ -8,6 +8,15 @@ let tray = null
 let overlayWindow = null
 let isOverlayVisible = false
 
+// Icon path — works in both dev (npm start) and packaged (AppImage)
+function getIconPath() {
+  if (app.isPackaged) {
+    // In AppImage, extraResources lands in process.resourcesPath
+    return path.join(process.resourcesPath, 'icon.png')
+  }
+  return path.join(__dirname, 'assets', 'icon.png')
+}
+
 function createOverlay() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
   const overlayHeight = Math.round(height * 0.55)
@@ -21,8 +30,10 @@ function createOverlay() {
     frame: false,
     transparent: true,
     alwaysOnTop: true,
-    skipTaskbar: true,
+    skipTaskbar: false,
     resizable: false,
+    focusable: true,
+    icon: getIconPath(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -33,10 +44,6 @@ function createOverlay() {
 
   overlayWindow.loadFile(path.join(__dirname, 'overlay.html'))
   overlayWindow.hide()
-
-  overlayWindow.on('blur', () => {
-    if (isOverlayVisible) hideOverlay()
-  })
 }
 
 function showOverlay() {
@@ -56,11 +63,15 @@ function toggleOverlay() {
 }
 
 app.whenReady().then(() => {
-  const icon = nativeImage.createEmpty()
-  tray = new Tray(icon)
+  app.setAppUserModelId("ar.haleph.overlay")
+
+  const iconPath = getIconPath()
+  const trayIcon = nativeImage.createFromPath(iconPath)
+  // Tray icons should be small — resize if needed
+  tray = new Tray(trayIcon.isEmpty() ? nativeImage.createEmpty() : trayIcon.resize({ width: 22, height: 22 }))
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: 'Abrir overlay (Ctrl+Shift+H)', click: toggleOverlay },
+    { label: 'Abrir overlay (Ctrl+Alt+Space)', click: toggleOverlay },
     { type: 'separator' },
     { label: 'Salir', click: () => app.quit() }
   ])
@@ -73,7 +84,7 @@ app.whenReady().then(() => {
   createOverlay()
   setTimeout(() => showOverlay(), 1000)
 
-  globalShortcut.register('CommandOrControl+Shift+H', toggleOverlay)
+  globalShortcut.register('CommandOrControl+Alt+Space', toggleOverlay)
 
   ipcMain.on('hide-overlay', hideOverlay)
 
