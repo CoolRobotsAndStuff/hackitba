@@ -832,43 +832,22 @@ def execute_action(action):
                 map_issue_to_event(target_id, r["event_id"], params.get("summary", ""))
             return r
 
-        # ── Jira update ──
+        # ── Jira update ── (direct API — n8n MCP returns false success)
         elif action_type == "update_jira_issue":
-            args = {"issue_key": target_id}
-            if params.get("new_assignee"):
-                args["new_assignee"] = params["new_assignee"]
-
-            result = mcp_call("tools/call", {
-                "name": TOOL_JIRA,
-                "arguments": {"input": json.dumps(args)},
-            })
-            if _mcp_ok(result):
-                return {"success": True, "message": f"{target_id} actualizado en Jira"}
-
-            # Fallback
-            print(f"[WARN] MCP update_jira failed, direct API...")
+            print(f"[INFO] Updating Jira issue via direct API: {target_id}")
             fields = {}
             if params.get("new_assignee"):
                 fields["assignee"] = {"accountId": params["new_assignee"]}
-            if fields:
-                return jira_update_issue_direct(target_id, fields)
-            return {"success": False, "message": f"No fields to update for {target_id}"}
+            if params.get("new_status"):
+                # Status changes need transitions API, not fields update
+                fields["status_note"] = params["new_status"]
+            if not fields:
+                return {"success": False, "message": f"No fields to update for {target_id}"}
+            return jira_update_issue_direct(target_id, fields)
 
-        # ── Jira due date ──
+        # ── Jira due date ── (direct API — n8n MCP returns false success)
         elif action_type == "update_jira_duedate":
-            result = mcp_call("tools/call", {
-                "name": TOOL_DUEDATE,
-                "arguments": {"input": json.dumps({
-                    "issue_key": target_id,
-                    "due_date": params.get("due_date", ""),
-                })},
-            })
-            if _mcp_ok(result):
-                _sync_jira_date_to_calendar_async(target_id, params.get("due_date", ""))
-                return {"success": True, "message": f"Deadline de {target_id} actualizado"}
-
-            # Fallback
-            print(f"[WARN] MCP duedate failed, direct API...")
+            print(f"[INFO] Updating Jira due date via direct API: {target_id} → {params.get('due_date', '')}")
             r = jira_update_issue_direct(target_id, {"duedate": params.get("due_date", "")})
             if r["success"]:
                 _sync_jira_date_to_calendar_async(target_id, params.get("due_date", ""))
@@ -972,16 +951,11 @@ def _sync_calendar_date_to_jira(event_id, new_start, summary=""):
 
         print(f"[SYNC] Cal→Jira: event {event_id} → {issue_key} due={due_date}")
 
-        result = mcp_call("tools/call", {
-            "name": TOOL_DUEDATE,
-            "arguments": {"input": json.dumps({"issue_key": issue_key, "due_date": due_date})},
-        })
-
-        if _mcp_ok(result):
+        r = jira_update_issue_direct(issue_key, {"duedate": due_date})
+        if r["success"]:
             print(f"[SYNC] ✓ Jira {issue_key} updated to {due_date}")
         else:
-            print(f"[SYNC] MCP failed, direct API...")
-            jira_update_issue_direct(issue_key, {"duedate": due_date})
+            print(f"[SYNC] ✗ Jira update failed: {r['message']}")
 
         queue_event("haleph", f"Jira sincronizado: {issue_key} deadline → {due_date}",
                     {"issue_key": issue_key, "calendar_event_id": event_id, "sync": True})
