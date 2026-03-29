@@ -3,9 +3,13 @@ import subprocess
 import sys
 import os
 import time
+import webbrowser
+import platform
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 OVERLAY_DIR = os.path.join(ROOT, "hackitba-overlay")
+
+NPM = "npm.cmd" if platform.system() == "Windows" else "npm"
 
 procesos = []
 
@@ -34,7 +38,7 @@ def verificar_dependencias():
     log("Verificando dependencias...")
 
     node = subprocess.run(["node", "--version"], capture_output=True, text=True)
-    npm  = subprocess.run(["npm", "--version"],  capture_output=True, text=True)
+    npm  = subprocess.run([NPM, "--version"],    capture_output=True, text=True)
     if node.returncode != 0 or npm.returncode != 0:
         print("         ✗ Node.js no está instalado.")
         print("         Descargalo en https://nodejs.org")
@@ -44,7 +48,7 @@ def verificar_dependencias():
     nm = os.path.join(OVERLAY_DIR, "node_modules")
     if not os.path.exists(nm):
         log("Instalando dependencias de Electron (primera vez)...")
-        subprocess.run(["npm", "install"], cwd=OVERLAY_DIR, check=True)
+        subprocess.run([NPM, "install"], cwd=OVERLAY_DIR, check=True)
         print("         ✓ Dependencias instaladas")
     else:
         print("         ✓ node_modules ya existe")
@@ -68,7 +72,6 @@ def main():
 
     # Abrir ventanas del browser
     log("Abriendo ventanas de demo...")
-    import webbrowser
     webbrowser.open("https://calendar.google.com/calendar/u/3/r?pli=1")
     time.sleep(1)
     webbrowser.open("https://hackitba-demo.atlassian.net/jira/for-you")
@@ -77,7 +80,7 @@ def main():
 
     # Levantar HALeph
     correr(
-        ["npm", "start"],
+        [NPM, "start"],
         cwd=OVERLAY_DIR,
         nombre="HALeph (Electron)"
     )
