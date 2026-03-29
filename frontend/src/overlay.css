@@ -364,26 +364,14 @@ body {
 
 /* ── Notifications (external events — styled like executed actions) ── */
 .notification-group {
-  border-left-color: var(--amber) !important;
-  animation: notifPulse 0.5s ease;
+  animation: notifSlideIn 0.3s ease;
 }
 .notification-group .notif-header-line {
-  display: flex;
-  align-items: center;
-  gap: 5px;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.4px;
   color: var(--amber);
   opacity: 0.8;
-}
-.notif-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 7px;
-  line-height: 1;
-  animation: iconPulse 2s ease-in-out infinite;
 }
 .notification-group .cascade-hint-line {
   font-size: 9px;
@@ -392,16 +380,11 @@ body {
   font-style: italic;
 }
 .clickable-notification { cursor: pointer; }
-.clickable-notification:hover { border-left-color: var(--warm-white-soft) !important; background: rgba(152,120,80,0.06); }
+.clickable-notification:hover { background: rgba(152,120,80,0.06); }
 
-@keyframes notifPulse {
-  0% { border-left-color: var(--warm-white-soft); opacity: 0.5; transform: translateX(4px); }
-  50% { border-left-color: var(--amber); opacity: 1; }
-  100% { transform: translateX(0); }
-}
-@keyframes iconPulse {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+@keyframes notifSlideIn {
+  0% { opacity: 0; transform: translateX(4px); }
+  100% { opacity: 1; transform: translateX(0); }
 }
 
 /* ── Plan creation — timeline items ── */

@@ -188,58 +188,100 @@ function addThinking(){
   return addMsgHtml('Analizando dependencias<div class="dot-pulse"><span></span><span></span><span></span></div>','ai')
 }
 
+// ═══ Action classification helpers ═══
+function actionApp(a) {
+  const t = a.type || ''
+  if (t.includes('calendar')) return 'calendar'
+  if (t.includes('jira')) return 'jira'
+  if (t.includes('slack')) return 'slack'
+  return 'other'
+}
+
+function detectPrimaryApp(prompt) {
+  const p = prompt.toLowerCase()
+  if (p.match(/calendar|evento|event|reunión|meeting/)) return 'calendar'
+  if (p.match(/jira|tarea|task|issue|kan-|sprint/)) return 'jira'
+  return null
+}
+
+const actionLabels = {
+  update_calendar_event: a => `Mover evento ${a.target_id} al ${a.params?.new_start?.split('T')[0]||'?'}`,
+  update_jira_issue: a => `Reasignar ${a.target_id} → ${a.params?.new_assignee||'?'}`,
+  update_jira_duedate: a => `Actualizar deadline de ${a.target_id} al ${a.params?.due_date||'?'}`,
+  notify_slack: () => 'Notificar al equipo',
+  create_jira_issue: a => `Crear tarea: ${a.params?.summary||a.target_id||''}`,
+  create_calendar_event: a => `Crear evento: ${a.params?.summary||a.target_id||''}`,
+  create_github_issue: a => `Crear issue: ${a.params?.title||a.target_id||''}`
+}
+
+function renderActionLines(actions) {
+  addActionGroup(actions.map(a => ({
+    text: (actionLabels[a.type] || (() => JSON.stringify(a)))(a)
+  })))
+}
+
+let pendingCascade = null
+
 async function sendPromptToBackend(){
   const text=input.value.trim();if(!text)return
   input.value='';sendBtn.disabled=true
-  confirmBar.classList.remove('visible');currentPlan=null
+  confirmBar.classList.remove('visible');currentPlan=null;pendingCascade=null
 
   addMsg(text,'user')
   const thinkingItem=addThinking()
 
   try{
-    // Try unified endpoint first, fall back to legacy /report-delay
     let response = await fetch(`${backendUrl}/prompt`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
     if (response.status === 404) {
       response = await fetch(`${backendUrl}/report-delay`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:text})})
     }
     thinkingItem.remove();logoState='idle'
     if(!response.ok) throw new Error(`Error ${response.status}`)
-    const data=await response.json();currentPlan=data
+    const data=await response.json()
     if(data.dependency_graph) graphData=data.dependency_graph
 
-    // AI summary message
     addMsg(data.summary,'ai')
 
-    // Render based on response type
     if (data.type === 'plan') {
-      // Plan creation — show timeline phases
       renderPlanTimeline(data)
+      currentPlan = data
+      confirmText.textContent = `¿Ejecutar ${data.actions?.length||0} cambios?`
+      confirmBar.classList.add('visible')
     } else {
-      // Delay/adjustment — show flat action list
-      if(data.actions&&data.actions.length>0){
-        const actionLines=data.actions.map(action=>{
-          const labels={
-            update_calendar_event:`Mover evento ${action.target_id} al ${action.params?.new_start?.split('T')[0]||'?'}`,
-            update_jira_issue:`Reasignar ${action.target_id} → ${action.params?.new_assignee||'?'}`,
-            update_jira_duedate:`Actualizar deadline de ${action.target_id} al ${action.params?.due_date||'?'}`,
-            notify_slack:'Notificar al equipo',
-            create_jira_issue:`Crear tarea: ${action.params?.summary||action.target_id||''}`,
-            create_calendar_event:`Crear evento: ${action.params?.summary||action.target_id||''}`,
-            create_github_issue:`Crear issue: ${action.params?.title||action.target_id||''}`
-          }
-          return{text:labels[action.type]||JSON.stringify(action)}
-        })
-        addActionGroup(actionLines)
+      const actions = data.actions || []
+      const apps = new Set(actions.map(actionApp))
+      const hasCrossApp = apps.has('calendar') && apps.has('jira')
+
+      if (hasCrossApp && actions.length > 1) {
+        const primaryApp = detectPrimaryApp(text) || actionApp(actions[0])
+        const primaryActions = actions.filter(a => actionApp(a) === primaryApp)
+        const cascadeActions = actions.filter(a => actionApp(a) !== primaryApp && actionApp(a) !== 'slack')
+        const slackActions = actions.filter(a => actionApp(a) === 'slack')
+
+        if (primaryActions.length > 0 && cascadeActions.length > 0) {
+          renderActionLines(primaryActions)
+          currentPlan = { ...data, actions: primaryActions }
+          pendingCascade = { actions: [...cascadeActions, ...slackActions], planMeta: data }
+          const appLabel = primaryApp === 'calendar' ? 'Calendar' : 'Jira'
+          confirmText.textContent = `¿Ejecutar cambios en ${appLabel}?`
+          confirmBar.classList.add('visible')
+        } else {
+          if (actions.length > 0) renderActionLines(actions)
+          currentPlan = data
+          confirmText.textContent = `¿Ejecutar ${actions.length} cambios?`
+          confirmBar.classList.add('visible')
+        }
+      } else {
+        if (actions.length > 0) renderActionLines(actions)
+        currentPlan = data
+        confirmText.textContent = `¿Ejecutar ${actions.length} cambios?`
+        confirmBar.classList.add('visible')
       }
     }
 
-    // History-based warnings (if backend flagged risk members)
     if (data.warnings && data.warnings.length > 0) {
       data.warnings.forEach(w => addNotification('HALeph', w))
     }
-
-    confirmText.textContent=`¿Ejecutar ${data.actions?.length||0} cambios?`
-    confirmBar.classList.add('visible')
   }catch(err){
     thinkingItem?.remove();logoState='idle'
     addMsg(`Error: ${err.message} (${backendUrl || 'sin URL'})`,'error')
@@ -312,17 +354,35 @@ async function executePlan(){
     const result=await response.json()
     const resultLines=(result.results||[]).map(r=>({text:r.message||(r.success?'Cambio ejecutado':'Error al ejecutar'),cls:r.success?'done':'error'}))
     addActionGroup(resultLines)
-    addMsg('Todos los cambios aplicados.','done-msg')
+
+    // Save history for this batch
     await window.electron.addHistoryEntry({prompt:currentPlan.prompt||'',summary:currentPlan.summary||'',actions:currentPlan.actions||[],results:result.results||[],sources:(currentPlan.actions||[]).map(a=>a.type).filter((v,i,s)=>s.indexOf(v)===i),type:currentPlan.type||'adjust'})
+
+    // If there are cascade actions pending, offer them now
+    if (pendingCascade && pendingCascade.actions.length > 0) {
+      const firstNonSlack = pendingCascade.actions.find(a => actionApp(a) !== 'slack') || pendingCascade.actions[0]
+      const cascadeAppName = actionApp(firstNonSlack) === 'calendar' ? 'Calendar' : actionApp(firstNonSlack) === 'jira' ? 'Jira' : actionApp(firstNonSlack)
+      addMsg(`Cambio vinculado en ${cascadeAppName}:`, 'ai')
+      renderActionLines(pendingCascade.actions)
+
+      currentPlan = { ...pendingCascade.planMeta, actions: pendingCascade.actions }
+      pendingCascade = null
+      confirmText.textContent = `¿Aplicar también en ${cascadeAppName}?`
+      confirmBar.classList.add('visible')
+      logoState='idle'
+      return
+    }
+
+    addMsg('Todos los cambios aplicados.','done-msg')
   }catch(err){addMsg(`Error al ejecutar: ${err.message}`,'error')}
-  logoState='idle';currentPlan=null
+  logoState='idle';currentPlan=null;pendingCascade=null
 }
 
 document.getElementById('btn-close').addEventListener('click',()=>window.electron.hideOverlay())
 sendBtn.addEventListener('click',sendPromptToBackend)
 input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendPromptToBackend()}})
 document.getElementById('btn-approve').addEventListener('click',executePlan)
-document.getElementById('btn-reject').addEventListener('click',()=>{confirmBar.classList.remove('visible');currentPlan=null;addMsg('Plan cancelado.','neutral')})
+document.getElementById('btn-reject').addEventListener('click',()=>{confirmBar.classList.remove('visible');currentPlan=null;pendingCascade=null;addMsg('Plan cancelado.','neutral')})
 window.electron.onOverlayOpened(()=>{setTimeout(()=>sidebar.classList.add('visible'),10);input.focus()})
 loadSettings().then(() => { startPolling(); pollPendingEvents() })
 
@@ -709,8 +769,7 @@ function addNotification(source, text, taskId, cascadeHint, rawEvent) {
   // Source header line
   const srcLine = document.createElement('div')
   srcLine.className = 'action-line notif-header-line'
-  const sourceIcons = { Jira: '◆', Calendar: '◇', Slack: '▸', GitHub: '●', HALeph: '◉' }
-  srcLine.innerHTML = `<span class="notif-icon">${sourceIcons[source] || '▪'}</span>${source}`
+  srcLine.textContent = source
   group.appendChild(srcLine)
 
   // Detail line
