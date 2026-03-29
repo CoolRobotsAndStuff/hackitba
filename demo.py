@@ -78,9 +78,16 @@ def main():
     time.sleep(1)
     print("         ✓ Calendar y Jira abiertos")
 
+    if platform.system() == "Windows":
+        electron_cmd = ["Haleph.exe"]
+    elif platform.system() == "Darwin":  # macOS
+        electron_cmd = [NPM,"start"]
+    else:  # Linux
+        electron_cmd = [NPM,"start"]
+
     # Levantar HALeph
     correr(
-        ["Haleph.exe"],
+        electron_cmd,
         cwd=OVERLAY_DIR,
         nombre="HALeph (Electron)"
     )
